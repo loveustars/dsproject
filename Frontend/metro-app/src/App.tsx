@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { KeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import Map, { NavigationControl } from 'react-map-gl/mapbox';
+import 'mapbox-gl/dist/mapbox-gl.css';
 import './App.css';
 
 interface Station {
@@ -179,80 +181,19 @@ export default function App() {
   
   const currentMessages = currentSessionId ? sessions.find(s => s.id === currentSessionId)?.messages || [] : [];
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [mapboxToken, setMapboxToken] = useState(() => {
+    return localStorage.getItem('metro-mapbox-token') || '';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('metro-mapbox-token', mapboxToken);
+  }, [mapboxToken]);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentMessages, isTyping]);
-
-  useEffect(() => {
-    if (!sidebarOpen) return;
-    
-    const drawMap = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const panel = canvas.parentElement;
-      if (!panel) return;
-
-      const W = panel.offsetWidth;
-      const H = panel.offsetHeight;
-      canvas.width = W;
-      canvas.height = H;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      ctx.fillStyle = isDark ? '#252522' : '#efede8';
-      ctx.fillRect(0, 0, W, H);
-
-      const route = routesData[selectedRoute];
-      const stations = route.stations;
-      const sw = route.switchAt;
-
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
-      for (let i = 0; i < stations.length - 1; i++) {
-        const a = stations[i], b = stations[i + 1];
-        const c = i < sw ? route.color1 : route.color2;
-        ctx.beginPath();
-        ctx.moveTo(a.x * W, a.y * H);
-        ctx.lineTo(b.x * W, b.y * H);
-        ctx.strokeStyle = c;
-        ctx.lineWidth = 4.5;
-        ctx.stroke();
-      }
-
-      stations.forEach((s, i) => {
-        const x = s.x * W, y = s.y * H;
-        const isSwitch = i === sw;
-        const isEnd = i === 0 || i === stations.length - 1;
-        const r = isSwitch ? 9 : isEnd ? 8 : 6;
-
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fillStyle = isDark ? '#1e1e1c' : '#fff';
-        ctx.fill();
-        ctx.strokeStyle = i <= sw ? route.color1 : route.color2;
-        ctx.lineWidth = isEnd ? 3 : 2.5;
-        ctx.stroke();
-
-        ctx.fillStyle = isDark ? '#a0a09a' : '#666660';
-        ctx.font = `${isEnd || isSwitch ? 600 : 400} 10.5px -apple-system, sans-serif`;
-        const side = i < stations.length / 2 ? 1 : -1;
-        ctx.textAlign = side > 0 ? 'left' : 'right';
-        ctx.fillText(s.name, x + side * (r + 6), y + 4);
-      });
-    };
-
-    const timer = setTimeout(drawMap, 300);
-    window.addEventListener('resize', drawMap);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('resize', drawMap);
-    };
-  }, [selectedRoute, sidebarOpen]);
 
   const handleSend = async () => {
     if (!inputVal.trim()) return;
@@ -517,7 +458,30 @@ export default function App() {
         </div>
         <div className="panel-label">线路地图</div>
         <div id="map-panel">
-          <canvas ref={canvasRef} id="metro-map" />
+          {mapboxToken ? (
+            <Map
+              mapboxAccessToken={mapboxToken}
+              initialViewState={{
+                longitude: 116.4074,
+                latitude: 39.9042,
+                zoom: 10
+              }}
+              style={{width: '100%', height: '100%'}}
+              mapStyle={window.matchMedia('(prefers-color-scheme: dark)').matches ? 'mapbox://styles/mapbox/dark-v11' : 'mapbox://styles/mapbox/light-v11'}
+            >
+              <NavigationControl position="bottom-right" />
+            </Map>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#888', flexDirection: 'column', gap: '10px' }}>
+              <p>{t('请在设置中配置 Mapbox Token', 'Please configure Mapbox Token in settings')}</p>
+              <button 
+                className="route-tag" 
+                onClick={() => { setSettingsOpen(true); setSettingsTab('general'); }}
+              >
+                {t('去设置', 'Go to Settings')}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -562,6 +526,21 @@ export default function App() {
                         <option value="zh">简体中文</option>
                         <option value="en">English</option>
                       </select>
+                    </div>
+                    <div className="form-group mt-4">
+                      <label>Mapbox Token</label>
+                      <input 
+                        type="password" 
+                        value={mapboxToken} 
+                        onChange={e => setMapboxToken(e.target.value)} 
+                        placeholder="pk.eyJ1..." 
+                      />
+                      <div className="api-hint" style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
+                        {t('用于在右侧面板渲染交互式地图。', 'Used to render the interactive map on the right panel.')}
+                        <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', marginLeft: '4px' }}>
+                          {t('获取 Token', 'Get Token')}
+                        </a>
+                      </div>
                     </div>
                   </div>
                 )}
