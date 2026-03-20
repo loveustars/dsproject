@@ -9,6 +9,9 @@
 ## 本地启动
 
 ```bash
+# 进入目录
+cd Frontend\metro-app
+
 # 安装依赖
 npm install
 
