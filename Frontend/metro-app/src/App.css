@@ -131,17 +131,9 @@ html, body {
   display: flex;
   flex-direction: column;
   padding-top: calc(var(--topbar-h) + 12px);
+  overflow-y: auto;
 }
 #history-drawer.open { transform: translateX(0); }
-
-#drawer-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  background: transparent;
-}
-#drawer-overlay.show { display: block; }
 
 .history-header {
   display: flex;

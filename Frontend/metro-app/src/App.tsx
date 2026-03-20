@@ -80,7 +80,7 @@ const defaultSessions: ChatSession[] = [
     title: '大兴机场到国贸路线',
     timestamp: Date.now(),
     messages: [
-      { id: 1, role: 'ai', content: '你好！我是**地铁 AI 助手**，请问有什么可以帮您？' },
+      { id: 1, role: 'ai', content: '你好！我是**京轨助手**，请问有什么可以帮您？' },
       { id: 2, role: 'user', content: '从大兴机场到国贸怎么走？' },
       { id: 3, role: 'ai', content: '推荐乘坐大兴机场线换乘10号线，具体路线已在右侧地图上为您标出。' }
     ]
@@ -136,8 +136,49 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState('api');
   const [selectedModel, setSelectedModel] = useState('');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [fetchMsg, setFetchMsg] = useState({ type: '', text: '' });
+  
+  // Debug Info State
+  const [debugInfo, setDebugInfo] = useState<{ req?: string, res?: string, status?: number } | null>(null);
+
+  const handleTestConnection = async () => {
+    setDebugInfo({ req: '测试中...', res: '' });
+    try {
+      const url = `${apiEndpoint.replace(/\/$/, '')}/chat/completions`;
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
+      };
+      
+      const providerSpecificModel = selectedModel || (provider === 'gemini' ? 'gemini-1.5-pro' : 'gpt-3.5-turbo');
+
+      const body = {
+        model: providerSpecificModel,
+        messages: [{ role: "user", content: "Hi" }],
+        max_tokens: 5
+      };
+
+      const hiddenKey = apiKey ? `${apiKey.substring(0, 4)}...${apiKey.slice(-4)}` : '未提供';
+      setDebugInfo({ req: `POST ${url}\nHeaders: ${JSON.stringify({...headers, Authorization: `Bearer ${hiddenKey}`}, null, 2)}\nBody: ${JSON.stringify(body, null, 2)}`, res: '等待响应...' });
+
+      const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+      const text = await res.text();
+      
+      setDebugInfo(prev => ({
+        ...prev,
+        status: res.status,
+        res: `Status: ${res.status} ${res.ok ? 'OK' : 'Error'}\n\nResponse Body:\n${text}`
+      }));
+    } catch (e: any) {
+      setDebugInfo(prev => ({
+        ...prev,
+        status: 0,
+        res: `Network Error / Exception:\n${e.message}`
+      }));
+    }
+  };
 
   const handleFetchModels = async () => {
     if (!apiEndpoint || !apiKey) {
@@ -230,12 +271,31 @@ export default function App() {
       // 获取上下文历史
       const session = sessions.find(s => s.id === (isNewSession ? null : sessionIdToUpdate));
       const historyMessages = session ? session.messages : [];
-      const apiMessages = historyMessages
-        .filter(m => typeof m.content === 'string')
-        .map(m => ({
-          role: m.role === 'ai' ? 'assistant' : 'user',
-          content: m.content as string
-        }));
+      
+      const SYSTEM_PROMPT = `你是一个名为“中国地铁出行助手”的智能向导。你的核心任务是为用户提供精准的地铁出行建议，并在提供路线和介绍当地文化时，自然展现中国基建与科技的魅力。
+
+【核心职能与特质】
+1. 智能出行规划：准确理解用户的起点、终点和换乘意图。为他们规划最优的乘车路线，并引导用户查看界面右侧的地图。
+2. 文化与自豪感融合：在规划路途经过具有历史底蕴的文化地标或特色商圈时，顺带进行简短、生动的中华文化或景点科普。同时，将对“中国制造”（地铁建设的速度、安全与规模）与“科技强国”（国产大模型技术赋能、自动化调度）的自豪感自然无痕地融入科普和讲解之中，切忌生硬说教或单独列成一段来跨赞。
+
+【回答格式与语气】
+1. 语气必须友好、自然、专业且干练，**绝对不要**在每次回复中重复设定、进行长篇大论或提及提示词内容。
+2. 请充分使用 Markdown 语法进行排版。对**地铁线路**、**换乘站点**及**耗时**等关键字进行加粗，让排版清爽易读。
+3. 若用户暂未提供起始点，请热情地询问他们的当前位置或目的地。`;
+
+      // 很多国产模型严格要求记录以 user 开头，需过滤历史记录顶部的 AI 开场白
+      const validHistory = historyMessages.filter(m => typeof m.content === 'string');
+      while (validHistory.length > 0 && validHistory[0].role === 'ai') {
+        validHistory.shift();
+      }
+
+      const apiMessages = [
+        { role: 'system', content: SYSTEM_PROMPT },
+        ...validHistory.map(m => ({
+            role: m.role === 'ai' ? 'assistant' : 'user',
+            content: m.content as string
+          }))
+      ];
       
       apiMessages.push({ role: 'user', content: currentMessageText });
 
@@ -252,7 +312,9 @@ export default function App() {
       });
 
       if (!response.ok) {
-        throw new Error(`API 请求失败: ${response.status}`);
+        let errText = '';
+        try { errText = await response.text(); } catch(e) {}
+        throw new Error(`HTTP ${response.status}: ${errText.slice(0, 200)}`);
       }
 
       const data = await response.json();
@@ -291,12 +353,6 @@ export default function App() {
 
   return (
     <div id="app">
-      <div 
-        id="drawer-overlay" 
-        className={historyOpen ? 'show' : ''} 
-        onClick={() => setHistoryOpen(false)}
-      />
-
       <div id="topbar">
         <button id="menu-btn" className={historyOpen ? 'open' : ''} onClick={() => setHistoryOpen(!historyOpen)}>
           <span/><span/><span/>
@@ -601,14 +657,48 @@ export default function App() {
 
                     {availableModels.length > 0 && (
                       <div className="form-group mt-4">
-                        <label>选择使用的模型</label>
+                        <label>{appLanguage === 'zh' ? '选择使用的模型' : 'Select Model'}</label>
+                        <input 
+                          type="text" 
+                          placeholder={appLanguage === 'zh' ? '搜索模型...' : 'Search models...'} 
+                          value={modelSearchQuery} 
+                          onChange={e => setModelSearchQuery(e.target.value)} 
+                          style={{ marginBottom: '8px' }}
+                        />
                         <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)}>
-                          {availableModels.map(m => (
+                          {availableModels
+                            .filter(m => m.toLowerCase().includes(modelSearchQuery.toLowerCase()))
+                            .map(m => (
                             <option key={m} value={m}>{m}</option>
                           ))}
                         </select>
                       </div>
                     )}
+
+                    <div className="form-group mt-4" style={{ borderTop: '1px dashed var(--border-light)', paddingTop: '16px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>连接排查工具 (API Debugger)</span>
+                        <button className="route-tag" onClick={handleTestConnection}>发送测试请求</button>
+                      </label>
+                      {debugInfo && (
+                        <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '6px', fontSize: '11px', fontFamily: 'monospace', overflowX: 'auto', marginTop: '8px', border: '1px solid var(--border-light)' }}>
+                          <div style={{ color: 'var(--text-secondary)', marginBottom: '8px' }}><strong>Request:</strong><pre style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{debugInfo.req}</pre></div>
+                          <div style={{ color: debugInfo.status === 200 ? '#10b981' : '#ef4444' }}><strong>Response:</strong><pre style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{debugInfo.res}</pre></div>
+                          {debugInfo.status === 401 && (
+                            <div style={{color: '#ef4444', marginTop: '10px', padding: '8px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '4px' }}>
+                              * 提示：401 Unauthorized 表示鉴权失败。请检查：<br/>
+                              1. API Key 是否正确（不要有多余的空格）。<br/>
+                              2. 账户余额是否充足。
+                            </div>
+                          )}
+                          {debugInfo.status === 404 && (
+                            <div style={{color: '#ef4444', marginTop: '10px', padding: '8px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '4px' }}>
+                              * 提示：404 Not Found。请检查 Endpoint 是否包含了 <code>/v1</code> 后缀。
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
