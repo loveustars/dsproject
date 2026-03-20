@@ -307,7 +307,7 @@ export default function App() {
           </svg>
         </button>
         <div className="logo-area">
-          <span className="logo-text">{t('地铁 AI 助手', 'Metro AI Assistant')}</span>
+          <span className="logo-text">{t(' 京轨', 'Beijing Subway Assistant')}</span>
         </div>
         <button id="sidebar-toggle-btn" onClick={() => setSidebarOpen(!sidebarOpen)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -385,7 +385,7 @@ export default function App() {
                   />
                   <button className="send-btn" onClick={handleSend}>{t('发送', 'Send')}</button>
                 </div>
-                <div className="input-hint">{t('地铁 AI 助手仅供参考，请以官方信息为准', 'Metro AI Assistant is for reference only')}</div>
+                <div className="input-hint">{t('京轨助手仅供参考，请以官方信息为准', 'Beijing Subway Assistant is for reference only')}</div>
               </div>
             </div>
           ) : (
