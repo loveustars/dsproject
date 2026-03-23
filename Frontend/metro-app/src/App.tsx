@@ -1,475 +1,455 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { KeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Map, { NavigationControl } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './App.css';
+import { useVolcanoTTS } from './useVolcanoTTS';
 
-interface Station {
-  name: string;
-  x: number;
-  y: number;
-}
-
+// ─── Types ─────────────────────────────────────────────────────────────────
+interface Station { name: string; x: number; y: number; }
 interface RouteType {
-  color1: string;
-  color2: string;
-  label1: string;
-  label2: string;
-  stations: Station[];
-  switchAt: number;
-  duration: number;
-  badge?: string;
-  desc: string;
+  color1: string; color2: string; label1: string; label2: string;
+  stations: Station[]; switchAt: number; duration: number; badge?: string; desc: string;
 }
+interface Message { id: number; role: 'ai' | 'user'; content: string; }
+interface ChatSession { id: string; title: string; timestamp: number; messages: Message[]; }
 
-interface Message {
-  id: number;
-  role: 'ai' | 'user';
-  content: React.ReactNode;
-}
-
-interface ChatSession {
-  id: string;
-  title: string;
-  timestamp: number;
-  messages: Message[];
-}
-
+// ─── Static data ────────────────────────────────────────────────────────────
 const routesData: RouteType[] = [
   {
-    color1: '#D85A30', color2: '#185FA5', label1: '大兴机场线', label2: '10号线', duration: 52, badge: '最快',
-    desc: '大兴机场线 + 10号线 · 1次换乘', switchAt: 2,
+    color1: '#D85A30', color2: '#185FA5', label1: '大兴机场线', label2: '10号线',
+    duration: 52, badge: '最快', desc: '大兴机场线 + 10号线 · 1次换乘', switchAt: 2,
     stations: [
       { name: '大兴机场', x: 0.10, y: 0.85 }, { name: '大兴机场北', x: 0.23, y: 0.72 },
-      { name: '草桥', x: 0.39, y: 0.57 }, { name: '劲松', x: 0.56, y: 0.40 },
-      { name: '双井', x: 0.68, y: 0.32 }, { name: '国贸', x: 0.82, y: 0.22 },
-    ]
+      { name: '草桥',    x: 0.39, y: 0.57 }, { name: '劲松',     x: 0.56, y: 0.40 },
+      { name: '双井',    x: 0.68, y: 0.32 }, { name: '国贸',     x: 0.82, y: 0.22 },
+    ],
   },
   {
-    color1: '#D85A30', color2: '#3B6D11', label1: '大兴机场线', label2: '7号线', duration: 58,
-    desc: '大兴机场线 + 7号线 · 1次换乘', switchAt: 2,
+    color1: '#D85A30', color2: '#3B6D11', label1: '大兴机场线', label2: '7号线',
+    duration: 58, desc: '大兴机场线 + 7号线 · 1次换乘', switchAt: 2,
     stations: [
       { name: '大兴机场', x: 0.10, y: 0.85 }, { name: '大兴机场北', x: 0.23, y: 0.72 },
-      { name: '草桥', x: 0.39, y: 0.57 }, { name: '大兴新城', x: 0.52, y: 0.46 },
-      { name: '亦庄桥', x: 0.65, y: 0.36 }, { name: '国贸', x: 0.82, y: 0.22 },
-    ]
-  }
+      { name: '草桥',    x: 0.39, y: 0.57 }, { name: '大兴新城',  x: 0.52, y: 0.46 },
+      { name: '亦庄桥',  x: 0.65, y: 0.36 }, { name: '国贸',     x: 0.82, y: 0.22 },
+    ],
+  },
 ];
 
-const formatRelativeDate = (timestamp: number) => {
-  const date = new Date(timestamp);
-  const now = new Date();
-  
-  const midnightToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const midnightEvent = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  
-  const diffDays = Math.floor((midnightToday - midnightEvent) / (1000 * 60 * 60 * 24));
-  
-  if (diffDays === 0) return '今天';
-  if (diffDays === 1) return '昨天';
-  if (diffDays === 2) return '前天';
-  
+const formatRelativeDate = (ts: number) => {
+  const date = new Date(ts), now = new Date();
+  const diff = Math.floor(
+    (new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() -
+     new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()) / 86400000
+  );
+  if (diff === 0) return '今天';
+  if (diff === 1) return '昨天';
+  if (diff === 2) return '前天';
   return `${date.getMonth() + 1}月${date.getDate()}日`;
 };
 
 const defaultSessions: ChatSession[] = [
   {
-    id: 'session-1',
-    title: '大兴机场到国贸路线',
-    timestamp: Date.now(),
+    id: 'session-1', title: '大兴机场到国贸路线', timestamp: Date.now(),
     messages: [
-      { id: 1, role: 'ai', content: '你好！我是**京轨助手**，请问有什么可以帮您？' },
+      { id: 1, role: 'ai',   content: '你好！我是**京轨助手**，请问有什么可以帮您？' },
       { id: 2, role: 'user', content: '从大兴机场到国贸怎么走？' },
-      { id: 3, role: 'ai', content: '推荐乘坐大兴机场线换乘10号线，具体路线已在右侧地图上为您标出。' }
-    ]
+      { id: 3, role: 'ai',   content: '推荐乘坐**大兴机场线**换乘**10号线**，全程约 **52 分钟**。具体路线已在右侧地图标出。' },
+    ],
   },
   {
-    id: 'session-2',
-    title: '早高峰换乘建议',
-    timestamp: Date.now() - 24 * 60 * 60 * 1000,
+    id: 'session-2', title: '早高峰换乘建议', timestamp: Date.now() - 86400000,
     messages: [
       { id: 1, role: 'user', content: '早上哪条线人少？' },
-      { id: 2, role: 'ai', content: '早高峰期间各条线路客流均较大，建议错峰出行，或避免10号线、4号线等拥挤线路。' }
-    ]
-  }
+      { id: 2, role: 'ai',   content: '早高峰各线客流均较大，建议错峰出行，避开 **10号线**、**4号线** 等热门线路。' },
+    ],
+  },
 ];
 
+const SYSTEM_PROMPT = `你是一个名为"京轨助手"的智能地铁出行向导，为用户提供精准的北京地铁出行建议。
+
+【核心职能】
+1. 智能出行规划：理解起点、终点和换乘意图，规划最优路线，引导用户查看右侧地图。
+2. 文化融合：途经历史地标时，自然穿插简短的文化科普。
+
+【回答格式】
+- 语气友好、专业、干练。
+- 使用 Markdown 排版，对线路名、站点、耗时加粗。
+- 若未获取起始点，热情询问。`;
+
+const VOLCANO_VOICES = [
+  { value: 'BV700_streaming',      label: '豆包 2.0 通用女声（推荐）' },
+];
+
+type TriggerMode = 'auto' | 'manual' | 'both';
+
+// ─── App ────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [appLanguage, setAppLanguage] = useState<'zh' | 'en'>(() => {
-    return (localStorage.getItem('metro-lang') as 'zh' | 'en') || 'zh';
-  });
+  // persist
+  const [appLanguage, setAppLanguage] = useState<'zh' | 'en'>(
+    () => (localStorage.getItem('metro-lang') as 'zh' | 'en') || 'zh'
+  );
+  const [apiEndpoint,   setApiEndpoint]   = useState(() => localStorage.getItem('metro-endpoint') || 'https://api.openai.com/v1');
+  const [apiKey,        setApiKey]        = useState(() => localStorage.getItem('metro-key')      || '');
+  const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem('metro-model')    || '');
+  const [mapboxToken,   setMapboxToken]   = useState(() => localStorage.getItem('metro-mapbox-token') || '');
+  const [ttsEnabled,    setTtsEnabled]    = useState(() => localStorage.getItem('metro-tts') !== 'false');
+  const [ttsAppId,      setTtsAppId]      = useState(() => localStorage.getItem('metro-tts-appid') || '');
+  const [ttsToken,      setTtsToken]      = useState(() => localStorage.getItem('metro-tts-token') || '');
+  const [ttsWsUrl,      setTtsWsUrl]      = useState(() => localStorage.getItem('metro-tts-ws')    || 'ws://localhost:8765');
+  const [ttsVoice,      setTtsVoice]      = useState(() => localStorage.getItem('metro-tts-voice') || 'BV700_streaming');
+  const [ttsSpeed,      setTtsSpeed]      = useState(() => parseFloat(localStorage.getItem('metro-tts-speed') || '1.0'));
+  const [triggerMode,   setTriggerMode]   = useState<TriggerMode>(
+    () => (localStorage.getItem('metro-tts-trigger') as TriggerMode) || 'both'
+  );
+
+  useEffect(() => { localStorage.setItem('metro-lang',         appLanguage); },        [appLanguage]);
+  useEffect(() => { localStorage.setItem('metro-endpoint',     apiEndpoint); },        [apiEndpoint]);
+  useEffect(() => { localStorage.setItem('metro-key',          apiKey); },             [apiKey]);
+  useEffect(() => { localStorage.setItem('metro-model',        selectedModel); },      [selectedModel]);
+  useEffect(() => { localStorage.setItem('metro-mapbox-token', mapboxToken); },        [mapboxToken]);
+  useEffect(() => { localStorage.setItem('metro-tts',          String(ttsEnabled)); }, [ttsEnabled]);
+  useEffect(() => { localStorage.setItem('metro-tts-appid',    ttsAppId); },           [ttsAppId]);
+  useEffect(() => { localStorage.setItem('metro-tts-token',    ttsToken); },           [ttsToken]);
+  useEffect(() => { localStorage.setItem('metro-tts-ws',       ttsWsUrl); },           [ttsWsUrl]);
+  useEffect(() => { localStorage.setItem('metro-tts-voice',    ttsVoice); },           [ttsVoice]);
+
+  // 兼容迁移：历史版本可能保存了不稳定的直连地址，这里自动切回本地代理
   useEffect(() => {
-    localStorage.setItem('metro-lang', appLanguage);
-  }, [appLanguage]);
+    const old = localStorage.getItem('metro-tts-ws') || '';
+    if (old.includes('openspeech.bytedance.com')) {
+      setTtsWsUrl('ws://localhost:8765');
+    }
+  }, []);
+  useEffect(() => { localStorage.setItem('metro-tts-speed',    String(ttsSpeed)); },   [ttsSpeed]);
+  useEffect(() => { localStorage.setItem('metro-tts-trigger',  triggerMode); },        [triggerMode]);
 
   const t = (zh: string, en: string) => appLanguage === 'zh' ? zh : en;
 
+  // sessions
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     const saved = localStorage.getItem('metro-sessions');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
-    }
+    if (saved) { try { return JSON.parse(saved); } catch { /**/ } }
     return defaultSessions;
   });
-
-  useEffect(() => {
-    localStorage.setItem('metro-sessions', JSON.stringify(sessions));
-  }, [sessions]);
+  useEffect(() => { localStorage.setItem('metro-sessions', JSON.stringify(sessions)); }, [sessions]);
 
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-
-  const [hasStarted, setHasStarted] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [hasStarted,    setHasStarted]    = useState(false);
+  const [historyOpen,   setHistoryOpen]   = useState(false);
+  const [sidebarOpen,   setSidebarOpen]   = useState(false);
   const [selectedRoute, setSelectedRoute] = useState(0);
-  
-  const [inputVal, setInputVal] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
+  const [inputVal,      setInputVal]      = useState('');
+  const [isTyping,      setIsTyping]      = useState(false);
 
-  // Settings state
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [apiEndpoint, setApiEndpoint] = useState('https://api.openai.com/v1');
-  const [apiKey, setApiKey] = useState('');
-  const [provider, setProvider] = useState('openai-compatible');
-  const [settingsTab, setSettingsTab] = useState('api');
-  const [selectedModel, setSelectedModel] = useState('');
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [modelSearchQuery, setModelSearchQuery] = useState('');
-  const [isFetchingModels, setIsFetchingModels] = useState(false);
-  const [fetchMsg, setFetchMsg] = useState({ type: '', text: '' });
-  
-  // Debug Info State
-  const [debugInfo, setDebugInfo] = useState<{ req?: string, res?: string, status?: number } | null>(null);
+  // settings
+  const [settingsOpen,     setSettingsOpen]     = useState(false);
+  const [settingsTab,      setSettingsTab]      = useState('api');
+  const [provider,         setProvider]         = useState('openai-compatible');
+  const [availableModels,  setAvailableModels]  = useState<string[]>([]);
+  const [modelSearch,      setModelSearch]      = useState('');
+  const [fetchingModels,   setFetchingModels]   = useState(false);
+  const [fetchMsg,         setFetchMsg]         = useState({ type: '', text: '' });
+  const [debugInfo,        setDebugInfo]        = useState<{ req?: string; res?: string; status?: number } | null>(null);
 
-  const handleTestConnection = async () => {
-    setDebugInfo({ req: '测试中...', res: '' });
-    try {
-      const url = `${apiEndpoint.replace(/\/$/, '')}/chat/completions`;
-      const headers = {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
-      };
-      
-      const providerSpecificModel = selectedModel || (provider === 'gemini' ? 'gemini-1.5-pro' : 'gpt-3.5-turbo');
+  // streaming
+  const [streamingText,  setStreamingText]  = useState('');
+  const streamingTextRef = useRef('');
 
-      const body = {
-        model: providerSpecificModel,
-        messages: [{ role: "user", content: "Hi" }],
-        max_tokens: 5
-      };
-
-      const hiddenKey = apiKey ? `${apiKey.substring(0, 4)}...${apiKey.slice(-4)}` : '未提供';
-      setDebugInfo({ req: `POST ${url}\nHeaders: ${JSON.stringify({...headers, Authorization: `Bearer ${hiddenKey}`}, null, 2)}\nBody: ${JSON.stringify(body, null, 2)}`, res: '等待响应...' });
-
-      const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
-      const text = await res.text();
-      
-      setDebugInfo(prev => ({
-        ...prev,
-        status: res.status,
-        res: `Status: ${res.status} ${res.ok ? 'OK' : 'Error'}\n\nResponse Body:\n${text}`
-      }));
-    } catch (e: any) {
-      setDebugInfo(prev => ({
-        ...prev,
-        status: 0,
-        res: `Network Error / Exception:\n${e.message}`
-      }));
-    }
-  };
-
-  const handleFetchModels = async () => {
-    if (!apiEndpoint || !apiKey) {
-       setFetchMsg({ type: 'error', text: '请先填写 Endpoint 和 API Key' });
-       return;
-    }
-    setIsFetchingModels(true);
-    setFetchMsg({ type: '', text: '' });
-    try {
-      let fetchUrl = apiEndpoint.replace(/\/+$/, '');
-      if (provider === 'openai' || provider === 'openai-compatible') {
-        if (!fetchUrl.endsWith('/v1')) fetchUrl += '/v1';
-        fetchUrl += '/models';
-      } else {
-        throw new Error('当前仅支持自动获取 OpenAI 兼容接口的模型');
-      }
-
-      const res = await fetch(fetchUrl, {
-        headers: { 'Authorization': `Bearer ${apiKey}` }
-      });
-      
-      if (!res.ok) throw new Error(`连接失败: 状态码 ${res.status}`);
-      
-      const data = await res.json();
-      if (data.data && Array.isArray(data.data)) {
-        const models = data.data.map((m: any) => m.id);
-        setAvailableModels(models);
-        if (models.length > 0) {
-          setSelectedModel(models[0]);
-        }
-        setFetchMsg({ type: 'success', text: `成功获取到 ${models.length} 个模型` });
-      } else {
-        throw new Error('API 响应格式无法解析，可能不是标准的 OpenAI 兼容接口');
-      }
-    } catch (err: any) {
-       setFetchMsg({ type: 'error', text: err.message || '获取模型失败' });
-    } finally {
-      setIsFetchingModels(false);
-    }
-  };
-  
-  const currentMessages = currentSessionId ? sessions.find(s => s.id === currentSessionId)?.messages || [] : [];
-
-  const [mapboxToken, setMapboxToken] = useState(() => {
-    return localStorage.getItem('metro-mapbox-token') || '';
+  // TTS
+  const tts = useVolcanoTTS({
+    wsUrl:      ttsToken ? `${ttsWsUrl}?token=${ttsToken}` : ttsWsUrl,
+    appId:      ttsAppId,
+    token:      ttsToken,
+    voiceType:  ttsVoice,
+    speedRatio: ttsSpeed,
+    enabled:    ttsEnabled,
+    triggerMode,
   });
 
-  useEffect(() => {
-    localStorage.setItem('metro-mapbox-token', mapboxToken);
-  }, [mapboxToken]);
+  const currentMessages = currentSessionId
+    ? (sessions.find(s => s.id === currentSessionId)?.messages ?? [])
+    : [];
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [currentMessages, isTyping]);
+  }, [currentMessages, isTyping, streamingText]);
 
-  const handleSend = async () => {
-    if (!inputVal.trim()) return;
+  // ── handleSend ─────────────────────────────────────────────────────────────
+  const handleSend = useCallback(async () => {
+    if (!inputVal.trim() || isTyping) return;
 
-    const userMessage: Message = { id: Date.now(), role: 'user', content: inputVal };
-    let sessionIdToUpdate = currentSessionId;
-    const isNewSession = !hasStarted || !currentSessionId;
+    const userMsg: Message = { id: Date.now(), role: 'user', content: inputVal };
+    let sessionId = currentSessionId;
+    const isNew = !hasStarted || !currentSessionId;
 
-    if (isNewSession) {
+    if (isNew) {
       setHasStarted(true);
       setSidebarOpen(true);
-      sessionIdToUpdate = `session-${Date.now()}`;
-      setCurrentSessionId(sessionIdToUpdate);
-      setSessions(prev => [
-        {
-          id: sessionIdToUpdate!,
-          title: inputVal.slice(0, 10),
-          timestamp: Date.now(),
-          messages: [userMessage]
-        },
-        ...prev
-      ]);
+      sessionId = `session-${Date.now()}`;
+      setCurrentSessionId(sessionId);
+      setSessions(prev => [{ id: sessionId!, title: inputVal.slice(0, 12), timestamp: Date.now(), messages: [userMsg] }, ...prev]);
     } else {
-      setSessions(prev => prev.map(s => 
-        s.id === sessionIdToUpdate ? { ...s, messages: [...s.messages, userMessage] } : s
-      ));
+      setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, messages: [...s.messages, userMsg] } : s));
     }
 
-    const currentMessageText = inputVal;
+    const query = inputVal;
     setInputVal('');
     setIsTyping(true);
+    streamingTextRef.current = '';
+    setStreamingText('');
+
+    const autoTts = ttsEnabled && (triggerMode === 'auto' || triggerMode === 'both');
+    if (autoTts) tts.startSession();
 
     try {
-      // 获取上下文历史
-      const session = sessions.find(s => s.id === (isNewSession ? null : sessionIdToUpdate));
-      const historyMessages = session ? session.messages : [];
-      
-      const SYSTEM_PROMPT = `你是一个名为“中国地铁出行助手”的智能向导。你的核心任务是为用户提供精准的地铁出行建议，并在提供路线和介绍当地文化时，自然展现中国基建与科技的魅力。
+      const session = sessions.find(s => s.id === (isNew ? null : sessionId));
+      const history = (session?.messages ?? []).filter(m => typeof m.content === 'string');
+      while (history.length && history[0].role === 'ai') history.shift();
 
-【核心职能与特质】
-1. 智能出行规划：准确理解用户的起点、终点和换乘意图。为他们规划最优的乘车路线，并引导用户查看界面右侧的地图。
-2. 文化与自豪感融合：在规划路途经过具有历史底蕴的文化地标或特色商圈时，顺带进行简短、生动的中华文化或景点科普。同时，将对“中国制造”（地铁建设的速度、安全与规模）与“科技强国”（国产大模型技术赋能、自动化调度）的自豪感自然无痕地融入科普和讲解之中，切忌生硬说教或单独列成一段来跨赞。
-
-【回答格式与语气】
-1. 语气必须友好、自然、专业且干练，**绝对不要**在每次回复中重复设定、进行长篇大论或提及提示词内容。
-2. 请充分使用 Markdown 语法进行排版。对**地铁线路**、**换乘站点**及**耗时**等关键字进行加粗，让排版清爽易读。
-3. 若用户暂未提供起始点，请热情地询问他们的当前位置或目的地。`;
-
-      // 很多国产模型严格要求记录以 user 开头，需过滤历史记录顶部的 AI 开场白
-      const validHistory = historyMessages.filter(m => typeof m.content === 'string');
-      while (validHistory.length > 0 && validHistory[0].role === 'ai') {
-        validHistory.shift();
-      }
-
-      const apiMessages = [
+      const apiMsgs = [
         { role: 'system', content: SYSTEM_PROMPT },
-        ...validHistory.map(m => ({
-            role: m.role === 'ai' ? 'assistant' : 'user',
-            content: m.content as string
-          }))
+        ...history.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })),
+        { role: 'user', content: query },
       ];
-      
-      apiMessages.push({ role: 'user', content: currentMessageText });
 
-      const response = await fetch(`${apiEndpoint.replace(/\/$/, '')}/chat/completions`, {
+      const resp = await fetch(`${apiEndpoint.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {})
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
         },
-        body: JSON.stringify({
-          model: selectedModel || 'gpt-3.5-turbo',
-          messages: apiMessages
-        })
+        body: JSON.stringify({ model: selectedModel || 'gpt-3.5-turbo', messages: apiMsgs, stream: true }),
       });
 
-      if (!response.ok) {
-        let errText = '';
-        try { errText = await response.text(); } catch(e) {}
-        throw new Error(`HTTP ${response.status}: ${errText.slice(0, 200)}`);
+      if (!resp.ok || !resp.body) {
+        const err = await resp.text().catch(() => '');
+        throw new Error(`HTTP ${resp.status}: ${err.slice(0, 200)}`);
       }
 
-      const data = await response.json();
-      const aiMsgText = data.choices[0].message.content;
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
 
-      const aiMessage: Message = { id: Date.now() + 1, role: 'ai', content: aiMsgText };
-      
-      setSessions(prev => prev.map(s => 
-        s.id === sessionIdToUpdate ? { ...s, messages: [...s.messages, aiMessage] } : s
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.trim().startsWith('data:')) continue;
+          const data = line.trim().slice(5).trim();
+          if (data === '[DONE]') continue;
+          try {
+            const delta = JSON.parse(data)?.choices?.[0]?.delta?.content;
+            if (typeof delta === 'string' && delta) {
+              streamingTextRef.current += delta;
+              setStreamingText(streamingTextRef.current);
+              if (autoTts) tts.pushTextDelta(delta);
+            }
+          } catch { /**/ }
+        }
+      }
+
+      if (autoTts) tts.flushRemaining();
+
+      const finalText = streamingTextRef.current;
+      setSessions(prev => prev.map(s =>
+        s.id === sessionId
+          ? { ...s, messages: [...s.messages, { id: Date.now() + 1, role: 'ai', content: finalText }] }
+          : s
       ));
-    } catch (error: any) {
-      const errorMessage: Message = { id: Date.now() + 1, role: 'ai', content: `[请求出错]: ${error.message}` };
-      setSessions(prev => prev.map(s => 
-        s.id === sessionIdToUpdate ? { ...s, messages: [...s.messages, errorMessage] } : s
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setSessions(prev => prev.map(s =>
+        s.id === sessionId
+          ? { ...s, messages: [...s.messages, { id: Date.now() + 1, role: 'ai', content: `[请求出错]: ${msg}` }] }
+          : s
       ));
+      tts.stop();
     } finally {
       setIsTyping(false);
+      setStreamingText('');
+      streamingTextRef.current = '';
+    }
+  }, [inputVal, isTyping, currentSessionId, hasStarted, sessions, apiEndpoint, apiKey, selectedModel, ttsEnabled, triggerMode, tts]);
+
+  const handleNewChat = () => { tts.stop(); setHasStarted(false); setCurrentSessionId(null); setHistoryOpen(false); };
+  const handleSelectSession = (id: string) => { tts.stop(); setCurrentSessionId(id); setHasStarted(true); setHistoryOpen(false); };
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') handleSend(); };
+
+  const handleFetchModels = async () => {
+    if (!apiEndpoint || !apiKey) { setFetchMsg({ type: 'error', text: '请先填写 Endpoint 和 API Key' }); return; }
+    setFetchingModels(true); setFetchMsg({ type: '', text: '' });
+    try {
+      let url = apiEndpoint.replace(/\/+$/, '');
+      if (!url.endsWith('/v1')) url += '/v1';
+      const res = await fetch(`${url}/models`, { headers: { Authorization: `Bearer ${apiKey}` } });
+      if (!res.ok) throw new Error(`状态码 ${res.status}`);
+      const data = await res.json();
+      if (Array.isArray(data.data)) {
+        const models: string[] = data.data.map((m: { id: string }) => m.id);
+        setAvailableModels(models);
+        if (models.length) setSelectedModel(models[0]);
+        setFetchMsg({ type: 'success', text: `获取到 ${models.length} 个模型` });
+      } else throw new Error('响应格式无法解析');
+    } catch (e: unknown) {
+      setFetchMsg({ type: 'error', text: e instanceof Error ? e.message : '失败' });
+    } finally { setFetchingModels(false); }
+  };
+
+  const handleTestConn = async () => {
+    setDebugInfo({ req: '测试中...', res: '' });
+    try {
+      const url = `${apiEndpoint.replace(/\/$/, '')}/chat/completions`;
+      const h: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (apiKey) h.Authorization = `Bearer ${apiKey}`;
+      const body = { model: selectedModel || 'gpt-3.5-turbo', messages: [{ role: 'user', content: 'Hi' }], max_tokens: 5 };
+      const hid = apiKey ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : '无';
+      setDebugInfo({ req: `POST ${url}\nAuthorization: Bearer ${hid}`, res: '等待响应...' });
+      const res = await fetch(url, { method: 'POST', headers: h, body: JSON.stringify(body) });
+      const text = await res.text();
+      setDebugInfo(prev => ({ ...prev, status: res.status, res: `${res.status} ${res.ok ? 'OK' : 'Error'}\n\n${text}` }));
+    } catch (e: unknown) {
+      setDebugInfo(prev => ({ ...prev, status: 0, res: `Network Error: ${e instanceof Error ? e.message : ''}` }));
     }
   };
 
-  const handleNewChat = () => {
-    setHasStarted(false);
-    setCurrentSessionId(null);
-    setHistoryOpen(false);
-  };
-
-  const handleSelectSession = (id: string) => {
-    setCurrentSessionId(id);
-    setHasStarted(true);
-    setHistoryOpen(false);
-  };
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') handleSend();
-  };
-
+  // ─── Render ─────────────────────────────────────────────────────────────────
   return (
     <div id="app">
+      {/* Topbar */}
       <div id="topbar">
         <button id="menu-btn" className={historyOpen ? 'open' : ''} onClick={() => setHistoryOpen(!historyOpen)}>
-          <span/><span/><span/>
+          <span /><span /><span />
         </button>
         <button id="top-new-chat-btn" onClick={handleNewChat} title="新建对话">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="20" height="20">
-            <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
         <div className="logo-area">
-          <span className="logo-text">{t(' 京轨', 'Beijing Subway Assistant')}</span>
+          <span className="logo-text">{t('京轨', 'Beijing Metro AI')}</span>
         </div>
+
+        {/* TTS pill */}
+        {ttsEnabled && (tts.isSpeaking || tts.isConnecting) && (
+          <button className="tts-status-pill" onClick={tts.stop} title={t('点击停止', 'Click to stop')}>
+            <span className="tts-wave"><span /><span /><span /><span /></span>
+            <span>{tts.isConnecting && !tts.isSpeaking ? t('合成中…', 'Synth…') : t('播放中', 'Playing')}</span>
+          </button>
+        )}
+
         <button id="sidebar-toggle-btn" onClick={() => setSidebarOpen(!sidebarOpen)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <path d="M15 3v18" />
+            <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M15 3v18" />
           </svg>
         </button>
       </div>
 
+      {/* History */}
       <div id="history-drawer" className={historyOpen ? 'open' : ''}>
-         <div className="history-header">
-           <div className="history-title">{t('历史记录', 'History')}</div>
-         </div>
-         {sessions.map(session => (
-           <div 
-             key={session.id} 
-             className={`history-item ${session.id === currentSessionId ? 'active' : ''}`}
-             onClick={() => handleSelectSession(session.id)}
-           >
-             <div className="history-title">{session.title}</div>
-             <div className="hist-date">{appLanguage === 'zh' ? formatRelativeDate(session.timestamp) : new Date(session.timestamp).toLocaleDateString()}</div>
-             <button 
-               className="del-session-btn" 
-               onClick={(e) => {
-                 e.stopPropagation();
-                 const newSessions = sessions.filter(s => s.id !== session.id);
-                 setSessions(newSessions);
-                 if (currentSessionId === session.id) {
-                   setCurrentSessionId(null);
-                   setHasStarted(false);
-                 }
-               }}
-               title={t('删除对话', 'Delete chat')}
-             >
-               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                 <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-               </svg>
-             </button>
-           </div>
-         ))}
-         
-         <div className="history-footer">
-           <button className="settings-btn" onClick={() => setSettingsOpen(true)}>
-             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-               <circle cx="12" cy="12" r="3" />
-               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-             </svg>
-             {t('设置', 'Settings')}
-           </button>
-         </div>
+        <div className="history-header">
+          <div className="history-section-label">{t('历史记录', 'History')}</div>
+        </div>
+        <div className="history-list">
+          {sessions.map(s => (
+            <div key={s.id} className={`history-item ${s.id === currentSessionId ? 'active' : ''}`}
+              onClick={() => handleSelectSession(s.id)}>
+              <div className="history-title">{s.title}</div>
+              <div className="hist-date">{formatRelativeDate(s.timestamp)}</div>
+              <button className="del-session-btn" onClick={e => {
+                e.stopPropagation();
+                setSessions(prev => prev.filter(x => x.id !== s.id));
+                if (currentSessionId === s.id) { setCurrentSessionId(null); setHasStarted(false); }
+              }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                  <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="history-footer">
+          <button className="settings-btn" onClick={() => setSettingsOpen(true)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="18" height="18">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+            {t('设置', 'Settings')}
+          </button>
+        </div>
       </div>
 
+      {/* Main */}
       <div id="main" className={`${sidebarOpen ? 'sidebar-open' : ''} ${historyOpen ? 'history-open' : ''}`.trim()}>
         <div id="chat-area">
           {!hasStarted ? (
             <div className="welcome-screen">
               <div className="welcome-logo">
                 <div className="metro-icon large">
-                  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M4 18L8 6l4 8 4-8 4 12" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path d="M4 18L8 6l4 8 4-8 4 12" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </div>
               </div>
               <h2 className="welcome-title">{t('今天想去哪里？', 'Where to today?')}</h2>
-              
               <div className="welcome-input-wrapper">
                 <div className="input-box shadow-xl">
-                  <input 
-                    type="text" 
-                    value={inputVal}
-                    onChange={(e) => setInputVal(e.target.value)}
+                  <input type="text" value={inputVal} onChange={e => setInputVal(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder={t('试试问：从大兴机场到国贸怎么走？', 'Try asking: How do I get to Guomao?')} 
-                    autoFocus
-                  />
+                    placeholder={t('试试问：从大兴机场到国贸怎么走？', 'Try: How do I get to Guomao?')}
+                    autoFocus />
                   <button className="send-btn" onClick={handleSend}>{t('发送', 'Send')}</button>
                 </div>
-                <div className="input-hint">{t('京轨助手仅供参考，请以官方信息为准', 'Beijing Subway Assistant is for reference only')}</div>
               </div>
             </div>
           ) : (
             <>
               <div id="messages">
-                {currentMessages.map((msg) => (
+                {currentMessages.map(msg => (
                   <div key={msg.id} className={`msg-wrap ${msg.role}`}>
                     {msg.role === 'ai' && <div className="avatar ai">M</div>}
                     <div className={`bubble ${msg.role}`}>
-                      {typeof msg.content === 'string' && msg.role === 'ai' ? (
-                        <div className="markdown-body">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {msg.content}
-                          </ReactMarkdown>
-                        </div>
-                      ) : (
-                        msg.content
+                      {msg.role === 'ai'
+                        ? <div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown></div>
+                        : msg.content}
+                      {/* 手动朗读按钮 */}
+                      {msg.role === 'ai' && ttsEnabled && (triggerMode === 'manual' || triggerMode === 'both') && (
+                        <button className="msg-tts-btn" onClick={() => tts.speakFull(msg.content)}
+                          title={t('朗读此消息', 'Read aloud')}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                          </svg>
+                        </button>
                       )}
                     </div>
                     {msg.role === 'user' && <div className="avatar user">我</div>}
                   </div>
                 ))}
-                
-                {isTyping && (
-                  <div className="msg-wrap">
+
+                {isTyping && streamingText && (
+                  <div className="msg-wrap ai">
                     <div className="avatar ai">M</div>
                     <div className="bubble ai">
-                      <div className="typing-indicator"><span/><span/><span/></div>
+                      <div className="markdown-body">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingText}</ReactMarkdown>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {isTyping && !streamingText && (
+                  <div className="msg-wrap ai">
+                    <div className="avatar ai">M</div>
+                    <div className="bubble ai">
+                      <div className="typing-indicator"><span /><span /><span /></div>
                     </div>
                   </div>
                 )}
@@ -478,15 +458,25 @@ export default function App() {
 
               <div id="input-area">
                 <div className="input-box">
-                  <input 
-                    type="text" 
-                    value={inputVal}
-                    onChange={(e) => setInputVal(e.target.value)}
+                  <input type="text" value={inputVal} onChange={e => setInputVal(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder={t('尝试输入...', 'Type a message...')} 
-                    autoFocus
-                  />
-                  <button className="send-btn" onClick={handleSend}>{t('发送', 'Send')}</button>
+                    placeholder={t('尝试输入...', 'Type a message...')}
+                    disabled={isTyping} autoFocus />
+                  <button className={`tts-toggle-btn ${ttsEnabled ? 'active' : ''}`}
+                    onClick={() => { tts.stop(); setTtsEnabled(v => !v); }}
+                    title={ttsEnabled ? t('关闭语音', 'Disable TTS') : t('开启语音', 'Enable TTS')}>
+                    {ttsEnabled
+                      ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="15" height="15">
+                          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                          <path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14" />
+                        </svg>
+                      : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="15" height="15">
+                          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                          <line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" />
+                        </svg>
+                    }
+                  </button>
+                  <button className="send-btn" onClick={handleSend} disabled={isTyping}>{t('发送', 'Send')}</button>
                 </div>
               </div>
             </>
@@ -494,15 +484,12 @@ export default function App() {
         </div>
       </div>
 
+      {/* Right sidebar */}
       <div id="sidebar" className={sidebarOpen ? 'open' : ''}>
         <div className="panel-label">推荐路线</div>
         <div id="route-panel">
           {routesData.map((route, idx) => (
-            <div 
-              key={idx} 
-              className={`route-card ${selectedRoute === idx ? 'selected' : ''}`}
-              onClick={() => setSelectedRoute(idx)}
-            >
+            <div key={idx} className={`route-card ${selectedRoute === idx ? 'selected' : ''}`} onClick={() => setSelectedRoute(idx)}>
               <div className="line-dot" style={{ background: route.color1 }} />
               <div className="route-info-text">
                 <div className="route-name">大兴机场 → 国贸</div>
@@ -514,102 +501,52 @@ export default function App() {
         </div>
         <div className="panel-label">线路地图</div>
         <div id="map-panel">
-          {mapboxToken ? (
-            <Map
-              mapboxAccessToken={mapboxToken}
-              initialViewState={{
-                longitude: 116.4074,
-                latitude: 39.9042,
-                zoom: 10
-              }}
-              style={{width: '100%', height: '100%'}}
-              mapStyle={window.matchMedia('(prefers-color-scheme: dark)').matches ? 'mapbox://styles/mapbox/dark-v11' : 'mapbox://styles/mapbox/light-v11'}
-            >
-              <NavigationControl position="bottom-right" />
-            </Map>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#888', flexDirection: 'column', gap: '10px' }}>
-              <p>{t('请在设置中配置 Mapbox Token', 'Please configure Mapbox Token in settings')}</p>
-              <button 
-                className="route-tag" 
-                onClick={() => { setSettingsOpen(true); setSettingsTab('general'); }}
-              >
-                {t('去设置', 'Go to Settings')}
-              </button>
-            </div>
-          )}
+          {mapboxToken
+            ? <Map mapboxAccessToken={mapboxToken}
+                initialViewState={{ longitude: 116.4074, latitude: 39.9042, zoom: 10 }}
+                style={{ width: '100%', height: '100%' }}
+                mapStyle={window.matchMedia('(prefers-color-scheme: dark)').matches ? 'mapbox://styles/mapbox/dark-v11' : 'mapbox://styles/mapbox/light-v11'}>
+                <NavigationControl position="bottom-right" />
+              </Map>
+            : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#888', flexDirection: 'column', gap: 10 }}>
+                <p>{t('请在设置中配置 Mapbox Token', 'Configure Mapbox Token in settings')}</p>
+                <button className="btn-secondary" onClick={() => { setSettingsOpen(true); setSettingsTab('general'); }}>{t('去设置', 'Settings')}</button>
+              </div>
+          }
         </div>
       </div>
 
+      {/* Settings modal */}
       {settingsOpen && (
         <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="settings-layout">
               <div className="settings-sidebar">
-                <div className="settings-header-title">{appLanguage === 'zh' ? '设置' : 'Settings'}</div>
-                <div 
-                  className={`settings-tab ${settingsTab === 'api' ? 'active' : ''}`} 
-                  onClick={() => setSettingsTab('api')}
-                >
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-                    <line x1="12" y1="22.08" x2="12" y2="12" />
-                  </svg>
-                  {appLanguage === 'zh' ? '模型与接口' : 'Model & API'}
-                </div>
-                <div 
-                  className={`settings-tab ${settingsTab === 'general' ? 'active' : ''}`} 
-                  onClick={() => setSettingsTab('general')}
-                >
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="2" y1="12" x2="22" y2="12" />
-                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                  </svg>
-                  {appLanguage === 'zh' ? '通用设置' : 'General'}
-                </div>
+                <div className="settings-header-title">{t('设置', 'Settings')}</div>
+                {[
+                  { key: 'api',     label: t('模型与接口', 'Model & API') },
+                  { key: 'tts',     label: t('语音合成',   'Voice / TTS') },
+                  { key: 'general', label: t('通用设置',   'General') },
+                ].map(tab => (
+                  <div key={tab.key}
+                    className={`settings-tab ${settingsTab === tab.key ? 'active' : ''}`}
+                    onClick={() => setSettingsTab(tab.key)}>
+                    {tab.label}
+                  </div>
+                ))}
               </div>
+
               <div className="settings-main">
                 <button className="close-btn top-right" onClick={() => setSettingsOpen(false)}>×</button>
-                
-                {settingsTab === 'general' && (
-                  <div className="settings-panel">
-                    <h3>{appLanguage === 'zh' ? '通用设置' : 'General Settings'}</h3>
-                    <div className="form-group">
-                      <label>{appLanguage === 'zh' ? '界面语言' : 'Language'}</label>
-                      <select value={appLanguage} onChange={e => setAppLanguage(e.target.value as 'zh' | 'en')}>
-                        <option value="zh">简体中文</option>
-                        <option value="en">English</option>
-                      </select>
-                    </div>
-                    <div className="form-group mt-4">
-                      <label>Mapbox Token</label>
-                      <input 
-                        type="password" 
-                        value={mapboxToken} 
-                        onChange={e => setMapboxToken(e.target.value)} 
-                        placeholder="pk.eyJ1..." 
-                      />
-                      <div className="api-hint" style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
-                        {t('用于在右侧面板渲染交互式地图。', 'Used to render the interactive map on the right panel.')}
-                        <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', marginLeft: '4px' }}>
-                          {t('获取 Token', 'Get Token')}
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                )}
 
+                {/* API */}
                 {settingsTab === 'api' && (
                   <div className="settings-panel">
-                    <h3>{appLanguage === 'zh' ? 'API 提供商设置' : 'API Provider Settings'}</h3>
-                    
+                    <h3>{t('API 设置', 'API Settings')}</h3>
                     <div className="form-group">
-                      <label>{appLanguage === 'zh' ? '选择 API 提供商' : 'Select Provider'}</label>
+                      <label>{t('提供商', 'Provider')}</label>
                       <select value={provider} onChange={e => {
-                        setProvider(e.target.value);
-                        setAvailableModels([]); // Reset models when provider changes
+                        setProvider(e.target.value); setAvailableModels([]);
                         if (e.target.value === 'openai') setApiEndpoint('https://api.openai.com/v1');
                         else if (e.target.value === 'openai-compatible') setApiEndpoint('https://aihubmix.com/v1');
                       }}>
@@ -619,85 +556,181 @@ export default function App() {
                         <option value="anthropic">Anthropic</option>
                       </select>
                     </div>
-
                     <div className="form-group mt-4">
-                      <label>API Endpoint (接口地址)</label>
-                      <input 
-                        type="text" 
-                        value={apiEndpoint} 
-                        onChange={e => setApiEndpoint(e.target.value)} 
-                        placeholder={provider === 'openai' ? 'https://api.openai.com/v1' : 'https://接口地址.../v1'} 
-                      />
+                      <label>API Endpoint</label>
+                      <input type="text" value={apiEndpoint} onChange={e => setApiEndpoint(e.target.value)} />
                     </div>
-                    
                     <div className="form-group">
-                      <label>API Key (密钥)</label>
-                      <input 
-                        type="password" 
-                        value={apiKey} 
-                        onChange={e => setApiKey(e.target.value)} 
-                        placeholder="sk-..." 
-                      />
+                      <label>API Key</label>
+                      <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="sk-..." />
                     </div>
-
                     <div className="form-group row-flex">
-                      <button 
-                        className="btn-secondary" 
-                        onClick={handleFetchModels} 
-                        disabled={isFetchingModels}
-                      >
-                        {isFetchingModels ? '正在连接和获取...' : '连接并获取模型列表'}
+                      <button className="btn-secondary" onClick={handleFetchModels} disabled={fetchingModels}>
+                        {fetchingModels ? '获取中…' : '获取模型列表'}
                       </button>
-                      {fetchMsg.text && (
-                        <span className={fetchMsg.type === 'error' ? 'error-text' : 'success-text'}>
-                          {fetchMsg.text}
-                        </span>
-                      )}
+                      {fetchMsg.text && <span className={fetchMsg.type === 'error' ? 'error-text' : 'success-text'}>{fetchMsg.text}</span>}
                     </div>
-
                     {availableModels.length > 0 && (
                       <div className="form-group mt-4">
-                        <label>{appLanguage === 'zh' ? '选择使用的模型' : 'Select Model'}</label>
-                        <input 
-                          type="text" 
-                          placeholder={appLanguage === 'zh' ? '搜索模型...' : 'Search models...'} 
-                          value={modelSearchQuery} 
-                          onChange={e => setModelSearchQuery(e.target.value)} 
-                          style={{ marginBottom: '8px' }}
-                        />
+                        <label>{t('选择模型', 'Model')}</label>
+                        <input type="text" placeholder="搜索…" value={modelSearch} onChange={e => setModelSearch(e.target.value)} style={{ marginBottom: 8 }} />
                         <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)}>
-                          {availableModels
-                            .filter(m => m.toLowerCase().includes(modelSearchQuery.toLowerCase()))
-                            .map(m => (
+                          {availableModels.filter(m => m.toLowerCase().includes(modelSearch.toLowerCase())).map(m => (
                             <option key={m} value={m}>{m}</option>
                           ))}
                         </select>
                       </div>
                     )}
-
-                    <div className="form-group mt-4" style={{ borderTop: '1px dashed var(--border-light)', paddingTop: '16px' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span>连接排查工具 (API Debugger)</span>
-                        <button className="route-tag" onClick={handleTestConnection}>发送测试请求</button>
+                    <div className="form-group mt-4" style={{ borderTop: '1px dashed var(--border-light)', paddingTop: 16 }}>
+                      <label style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>连接排查</span>
+                        <button className="btn-secondary" onClick={handleTestConn}>发测试请求</button>
                       </label>
                       {debugInfo && (
-                        <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '6px', fontSize: '11px', fontFamily: 'monospace', overflowX: 'auto', marginTop: '8px', border: '1px solid var(--border-light)' }}>
-                          <div style={{ color: 'var(--text-secondary)', marginBottom: '8px' }}><strong>Request:</strong><pre style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{debugInfo.req}</pre></div>
-                          <div style={{ color: debugInfo.status === 200 ? '#10b981' : '#ef4444' }}><strong>Response:</strong><pre style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{debugInfo.res}</pre></div>
-                          {debugInfo.status === 401 && (
-                            <div style={{color: '#ef4444', marginTop: '10px', padding: '8px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '4px' }}>
-                              * 提示：401 Unauthorized 表示鉴权失败。请检查：<br/>
-                              1. API Key 是否正确（不要有多余的空格）。<br/>
-                              2. 账户余额是否充足。
-                            </div>
-                          )}
-                          {debugInfo.status === 404 && (
-                            <div style={{color: '#ef4444', marginTop: '10px', padding: '8px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '4px' }}>
-                              * 提示：404 Not Found。请检查 Endpoint 是否包含了 <code>/v1</code> 后缀。
-                            </div>
-                          )}
+                        <div style={{ background: 'var(--bg-secondary)', padding: 10, borderRadius: 6, fontSize: 11, fontFamily: 'monospace', overflowX: 'auto', marginTop: 8 }}>
+                          <pre style={{ whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>{debugInfo.req}</pre>
+                          <pre style={{ whiteSpace: 'pre-wrap', color: debugInfo.status === 200 ? '#10b981' : '#ef4444', marginTop: 8 }}>{debugInfo.res}</pre>
                         </div>
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {/* TTS */}
+                {settingsTab === 'tts' && (
+                  <div className="settings-panel">
+                    <h3>{t('语音合成设置', 'Voice / TTS')}</h3>
+
+                    <div className="form-group">
+                      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>{t('启用语音朗读', 'Enable TTS')}</span>
+                        <button className={`toggle-switch ${ttsEnabled ? 'on' : ''}`}
+                          onClick={() => { tts.stop(); setTtsEnabled(v => !v); }}>
+                          <span className="toggle-knob" />
+                        </button>
+                      </label>
+                    </div>
+
+                    <div className="form-group mt-4">
+                      <label>{t('触发方式', 'Trigger Mode')}</label>
+                      <div className="trigger-mode-group">
+                        {([
+                          ['auto',   t('自动朗读', 'Auto')],
+                          ['manual', t('手动点击', 'Manual')],
+                          ['both',   t('两种都支持', 'Both')],
+                        ] as [TriggerMode, string][]).map(([val, label]) => (
+                          <button key={val}
+                            className={`trigger-mode-btn ${triggerMode === val ? 'active' : ''}`}
+                            onClick={() => setTriggerMode(val)}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="settings-hint">
+                        {triggerMode === 'auto'   && t('AI 回复时自动流式朗读', 'Auto-reads AI replies with streaming TTS')}
+                        {triggerMode === 'manual' && t('点击消息旁喇叭按钮手动朗读', 'Click speaker icon to read each message')}
+                        {triggerMode === 'both'   && t('自动朗读 + 保留手动按钮', 'Auto-read + manual speaker button')}
+                      </div>
+                    </div>
+
+                    <div className="form-group mt-4">
+                      <label>
+                        {t('火山引擎 Token', 'Volcano Token')}
+                      </label>
+                      <input type="password" value={ttsToken} onChange={e => setTtsToken(e.target.value)}
+                        placeholder={t('填写用于直连火山引擎的 Token', 'Token for Volcano TTS')} />
+                      <div className="settings-hint">
+                        {t('填写此项即可纯前端直连火山引擎，无需启动本地代理后端！', 'Fill this to connect directly from frontend, no proxy needed!')}
+                      </div>
+                    </div>
+
+                    <div className="form-group mt-4">
+                      <label>
+                        {t('火山引擎 AppID', 'Volcano AppID')}
+                      </label>
+                      <input type="text" value={ttsAppId} onChange={e => setTtsAppId(e.target.value)}
+                        placeholder="71089..." />
+                      <div className="settings-hint">
+                        {t('直连需要提供对应 Token 的 AppID', 'AppID associated with the Token')}
+                      </div>
+                    </div>
+
+                    <div className="form-group mt-4">
+                      <label>
+                        {t('代理 / 火山 WebSocket URL', 'Proxy / Volcano WS URL')}
+                        <span className="settings-badge">{t('必填', 'Required')}</span>
+                      </label>
+                      <input type="text" value={ttsWsUrl} onChange={e => setTtsWsUrl(e.target.value)}
+                        placeholder="ws://localhost:8765" />
+                      <div className="settings-hint">
+                        {t('推荐使用本地代理：ws://localhost:8765（最稳定，避免浏览器握手鉴权限制）。', 'Recommended: ws://localhost:8765 (most stable, avoids browser auth header limits).')}
+                      </div>
+                    </div>
+
+                    <div className="form-group mt-4">
+                      <label>{t('音色', 'Voice')}</label>
+                      <select value={ttsVoice} onChange={e => setTtsVoice(e.target.value)}>
+                        {VOLCANO_VOICES.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
+                      </select>
+                      <div className="settings-hint">
+                        {t('当前账号仅授权该音色。已验证可直接合成中文/英文/日文/法文文本。', 'Only this voice is granted for current account. Verified for Chinese/English/Japanese/French text synthesis.')}
+                      </div>
+                    </div>
+
+                    <div className="form-group mt-4">
+                      <label style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>{t('语速', 'Speed')}</span>
+                        <span style={{ color: 'var(--accent)', fontWeight: 500 }}>{ttsSpeed.toFixed(1)}×</span>
+                      </label>
+                      <input type="range" min="0.5" max="2.0" step="0.1" value={ttsSpeed}
+                        onChange={e => setTtsSpeed(parseFloat(e.target.value))}
+                        style={{ width: '100%', marginTop: 8 }} />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                        <span>0.5×</span><span>1.0×</span><span>2.0×</span>
+                      </div>
+                    </div>
+
+                    <div className="form-group mt-4" style={{ borderTop: '1px solid #333', paddingTop: '15px' }}>
+                      <label>{t('TTS 诊断面板', 'TTS Debugger')}</label>
+                      <button className="btn-secondary" onClick={() => {
+                        tts.speakFull('你好，能听到我的声音吗？我是一段测试语音！');
+                      }}>
+                        发测试语音
+                      </button>
+                      <div className="debug-box" style={{ marginTop: '10px', background: '#1e1e1e', padding: '10px', borderRadius: '6px', fontSize: '12px', color: '#00ffcc', maxHeight: '150px', overflowY: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+                        {tts.debugLogs.length === 0 ? '目前无连接...\n点击上方[发测试语音]以发起连接' : tts.debugLogs.join('\n')}
+                      </div>
+                    </div>
+
+                    <div className="tts-info-card mt-4">
+                      <div className="tts-info-title">⚡ 工作原理</div>
+                      <div className="tts-info-body">
+                        LLM 流式输出 → 按标点断句 → 每句建立独立 WebSocket 连接推送到火山 TTS → 接收 MP3 分片 → AudioContext 解码按序队列播放。多句并发请求，有序播放保证连贯。
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* General */}
+                {settingsTab === 'general' && (
+                  <div className="settings-panel">
+                    <h3>{t('通用设置', 'General')}</h3>
+                    <div className="form-group">
+                      <label>{t('界面语言', 'Language')}</label>
+                      <select value={appLanguage} onChange={e => setAppLanguage(e.target.value as 'zh' | 'en')}>
+                        <option value="zh">简体中文</option>
+                        <option value="en">English</option>
+                      </select>
+                    </div>
+                    <div className="form-group mt-4">
+                      <label>Mapbox Token</label>
+                      <input type="password" value={mapboxToken} onChange={e => setMapboxToken(e.target.value)} placeholder="pk.eyJ1..." />
+                      <div className="settings-hint">
+                        {t('用于渲染右侧交互式地图。', 'Renders the interactive map panel.')}
+                        <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', marginLeft: 4 }}>
+                          {t('获取 Token →', 'Get Token →')}
+                        </a>
+                      </div>
                     </div>
                   </div>
                 )}
