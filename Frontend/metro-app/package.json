@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "generate:metro-en": "node scripts/generate-metro-station-en.mjs"
   },
   "dependencies": {
     "dotenv": "^17.3.1",
@@ -31,6 +32,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
+    "pinyin-pro": "^3.28.1",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.0",

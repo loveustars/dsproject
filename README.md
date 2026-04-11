@@ -11,13 +11,18 @@
 ## 本地启动
 
 ```bash
-# 进入目录
-cd Frontend\metro-app
-
 # 安装依赖
 npm install
 
 # 启动开发服务器
+### 前端
+cd dsproject-main\Frontend\metro-app
+npm run dev
+### 语音
+cd dsproject-main\Frontend\metro-app
+npx tsx volcano-tts-proxy.ts
+### 后端
+cd dsproject-main\Backend
 npm run dev
 ```
 
@@ -40,6 +45,14 @@ npx tsx volcano-tts-proxy.ts
 接口标准见：
 
 - [docs/route-api.md](docs/route-api.md)
+
+## 后端本地启动
+
+```bash
+# 在 backend 目录下
+npm install
+npm run dev
+```
 
 ## 设置说明
 

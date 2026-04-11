@@ -1,0 +1,12 @@
+{
+  "name": "metro-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend service for metro route API",
+  "main": "src/index.js",
+  "scripts": {
+    "build:graph": "node src/buildAdjacency.js",
+    "dev": "node src/index.js",
+    "start": "node src/index.js"
+  }
+}

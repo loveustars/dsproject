@@ -1,1 +1,5 @@
 *.txt
+"dist/"  
+".vite/"  
+"*.log"  
+".DS_Store" 
