@@ -1,5 +1,6 @@
 const http = require("http");
 const { queryRoute, splitRouteEndpoints } = require("./queryRoute");
+const { getCultureTree, getStationsByPath, getSimilarStations } = require("./cultureService");
 
 const PORT = process.env.PORT || 3000;
 
@@ -122,6 +123,56 @@ const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/health") {
     console.log("[health] ok");
     return sendJson(res, 200, { ok: true, service: "metro-backend" });
+  }
+
+  if (req.method === "GET" && req.url === "/api/culture/tree") {
+    return sendJson(res, 200, {
+      requestId: buildRequestId(),
+      ...getCultureTree()
+    });
+  }
+
+  if (req.method === "POST" && req.url === "/api/culture/stations-by-path") {
+    readJsonBody(req, (parseErr, data) => {
+      if (parseErr) {
+        return sendJson(res, 400, {
+          requestId: buildRequestId(),
+          error: "invalid json body"
+        });
+      }
+      const stations = getStationsByPath(Array.isArray(data.path) ? data.path : []);
+      return sendJson(res, 200, {
+        requestId: buildRequestId(),
+        path: Array.isArray(data.path) ? data.path : [],
+        total: stations.length,
+        stations
+      });
+    });
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/culture/similar") {
+    readJsonBody(req, (parseErr, data) => {
+      if (parseErr) {
+        return sendJson(res, 400, {
+          requestId: buildRequestId(),
+          error: "invalid json body"
+        });
+      }
+      const stationName = String(data.stationName || "").trim();
+      if (!stationName) {
+        return sendJson(res, 400, {
+          requestId: buildRequestId(),
+          error: "stationName is required"
+        });
+      }
+
+      return sendJson(res, 200, {
+        requestId: buildRequestId(),
+        ...getSimilarStations(stationName, data.topK)
+      });
+    });
+    return;
   }
 
   if (req.method === "POST" && req.url === "/api/llm/models") {

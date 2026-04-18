@@ -58,7 +58,70 @@ interface UserLocation {
   capturedAt: number;
 }
 
+interface CultureTreeNode {
+  name: string;
+  count: number;
+  children: CultureTreeNode[];
+}
+
+interface CultureStation {
+  station_name: string;
+  tree_path: string[];
+  culture_tags: string[];
+  culture_types: string[];
+  story_summary: string;
+  recommended_topics: string[];
+  nearby_pois: string[];
+  audience_fit: string[];
+  popularity: number;
+  confidence: number;
+  why_recommend: string;
+  line_affinity: string[];
+}
+
+interface CultureTreeApiResponse {
+  requestId: string;
+  tree: CultureTreeNode[];
+  totalStations: number;
+}
+
+interface CultureStationsByPathApiResponse {
+  requestId: string;
+  path: string[];
+  total: number;
+  stations: CultureStation[];
+}
+
+interface CultureSimilarItem {
+  station_name: string;
+  tree_path: string[];
+  culture_tags: string[];
+  culture_types: string[];
+  story_summary: string;
+  score: number;
+  reasons: string[];
+}
+
+interface CultureSimilarApiResponse {
+  requestId: string;
+  stationName: string;
+  similarStations: CultureSimilarItem[];
+}
+
 type LocationCoordinateMode = 'auto' | 'wgs84-direct' | 'gcj02-to-wgs84';
+
+function buildTreeLevelOptions(tree: CultureTreeNode[], path: string[]): CultureTreeNode[][] {
+  const levels: CultureTreeNode[][] = [];
+  let nodes = tree;
+  levels.push(nodes);
+  for (const segment of path) {
+    const hit = nodes.find((n) => n.name === segment);
+    if (!hit || !Array.isArray(hit.children) || hit.children.length === 0) break;
+    nodes = hit.children;
+    levels.push(nodes);
+  }
+  return levels;
+}
 
 // ─── Static data ────────────────────────────────────────────────────────────
 const routesData: RouteType[] = [
@@ -751,6 +814,22 @@ export default function App() {
     () => (localStorage.getItem('metro-tts-trigger') as TriggerMode) || 'both'
   );
 
+  const [viewMode, setViewMode] = useState<'chat' | 'explore'>('chat');
+  const [cultureTree, setCultureTree] = useState<CultureTreeNode[]>([]);
+  const [cultureTreeLoading, setCultureTreeLoading] = useState(false);
+  const [cultureTreeError, setCultureTreeError] = useState('');
+  const [culturePath, setCulturePath] = useState<string[]>([]);
+  const [cultureStations, setCultureStations] = useState<CultureStation[]>([]);
+  const [cultureStationsLoading, setCultureStationsLoading] = useState(false);
+  const [cultureStationsError, setCultureStationsError] = useState('');
+  const [selectedCultureStation, setSelectedCultureStation] = useState<string>('');
+  const [exploreSimilarStations, setExploreSimilarStations] = useState<CultureSimilarItem[]>([]);
+  const [exploreSimilarLoading, setExploreSimilarLoading] = useState(false);
+  const [exploreSimilarError, setExploreSimilarError] = useState('');
+  const [popupSimilarStations, setPopupSimilarStations] = useState<CultureSimilarItem[]>([]);
+  const [popupSimilarLoading, setPopupSimilarLoading] = useState(false);
+  const [popupSimilarError, setPopupSimilarError] = useState('');
+
   useEffect(() => { localStorage.setItem('metro-lang',         appLanguage); },        [appLanguage]);
   useEffect(() => { localStorage.setItem('metro-endpoint',     apiEndpoint); },        [apiEndpoint]);
   useEffect(() => { localStorage.setItem('metro-key',          apiKey); },             [apiKey]);
@@ -780,6 +859,105 @@ export default function App() {
 
   const t = (zh: string, en: string) => appLanguage === 'zh' ? zh : en;
 
+  const fetchCultureTree = useCallback(async () => {
+    const backendBase = getBackendBaseUrl(routeApiEndpoint);
+    setCultureTreeLoading(true);
+    setCultureTreeError('');
+    try {
+      const resp = await fetch(`${backendBase}/api/culture/tree`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = (await resp.json()) as CultureTreeApiResponse;
+      setCultureTree(Array.isArray(data.tree) ? data.tree : []);
+    } catch (e) {
+      setCultureTree([]);
+      setCultureTreeError(e instanceof Error ? e.message : 'culture tree api error');
+    } finally {
+      setCultureTreeLoading(false);
+    }
+  }, [routeApiEndpoint]);
+
+  const fetchCultureStationsByPath = useCallback(async (path: string[]) => {
+    const backendBase = getBackendBaseUrl(routeApiEndpoint);
+    setCultureStationsLoading(true);
+    setCultureStationsError('');
+    try {
+      const resp = await fetch(`${backendBase}/api/culture/stations-by-path`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = (await resp.json()) as CultureStationsByPathApiResponse;
+      setCultureStations(Array.isArray(data.stations) ? data.stations : []);
+    } catch (e) {
+      setCultureStations([]);
+      setCultureStationsError(e instanceof Error ? e.message : 'culture stations api error');
+    } finally {
+      setCultureStationsLoading(false);
+    }
+  }, [routeApiEndpoint]);
+
+  const fetchSimilarStations = useCallback(async (stationName: string, scene: 'popup' | 'explore') => {
+    const backendBase = getBackendBaseUrl(routeApiEndpoint);
+    if (scene === 'popup') {
+      setPopupSimilarLoading(true);
+      setPopupSimilarError('');
+      setPopupSimilarStations([]);
+    } else {
+      setExploreSimilarLoading(true);
+      setExploreSimilarError('');
+      setExploreSimilarStations([]);
+    }
+
+    try {
+      const resp = await fetch(`${backendBase}/api/culture/similar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stationName, topK: 5 }),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = (await resp.json()) as CultureSimilarApiResponse;
+      const items = Array.isArray(data.similarStations) ? data.similarStations : [];
+      if (scene === 'popup') {
+        setPopupSimilarStations(items);
+      } else {
+        setExploreSimilarStations(items);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'culture similar api error';
+      if (scene === 'popup') {
+        setPopupSimilarError(msg);
+      } else {
+        setExploreSimilarError(msg);
+      }
+    } finally {
+      if (scene === 'popup') {
+        setPopupSimilarLoading(false);
+      } else {
+        setExploreSimilarLoading(false);
+      }
+    }
+  }, [routeApiEndpoint]);
+
+  useEffect(() => {
+    if (viewMode !== 'explore') return;
+    if (cultureTree.length > 0) return;
+    void fetchCultureTree();
+  }, [viewMode, cultureTree.length, fetchCultureTree]);
+
+  useEffect(() => {
+    if (viewMode !== 'explore') return;
+    if (culturePath.length === 0) {
+      setCultureStations([]);
+      setCultureStationsError('');
+      setSelectedCultureStation('');
+      setExploreSimilarStations([]);
+      setExploreSimilarError('');
+      return;
+    }
+    void fetchCultureStationsByPath(culturePath);
+  }, [viewMode, culturePath, fetchCultureStationsByPath]);
+
   // sessions
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     const saved = localStorage.getItem('metro-sessions');
@@ -804,6 +982,15 @@ export default function App() {
   const [selectedRoute, setSelectedRoute] = useState(0);
   const [inputVal,      setInputVal]      = useState('');
   const [isTyping,      setIsTyping]      = useState(false);
+  const isSidebarVisible = viewMode === 'chat' && sidebarOpen;
+
+  useEffect(() => {
+    if (viewMode === 'explore' && sidebarOpen) {
+      setSidebarOpen(false);
+      setMapExpanded(false);
+    }
+  }, [viewMode, sidebarOpen]);
+
   useEffect(() => { localStorage.setItem('metro-history-w', String(historyWidth)); }, [historyWidth]);
   useEffect(() => { localStorage.setItem('metro-sidebar-w', String(sidebarWidth)); }, [sidebarWidth]);
 
@@ -847,6 +1034,9 @@ export default function App() {
     setPopupIntroLoading(false);
     setPopupIntroTitle('');
     setPopupIntroText('');
+    setPopupSimilarStations([]);
+    setPopupSimilarLoading(false);
+    setPopupSimilarError('');
   }, [tts]);
 
   async function requestMetroIntro(targetType: 'station' | 'line', targetName: string) {
@@ -983,6 +1173,9 @@ export default function App() {
     setPopupIntroLoading(false);
     setPopupIntroTitle('');
     setPopupIntroText('');
+    setPopupSimilarStations([]);
+    setPopupSimilarLoading(false);
+    setPopupSimilarError('');
     setStationPopup({
       longitude: lng,
       latitude: lat,
@@ -1004,6 +1197,7 @@ export default function App() {
     : [];
   const resolvedRouteApiEndpoint = getRouteApiUrl(routeApiEndpoint);
   const shownRoutes = apiRoutes.length > 0 ? apiRoutes : routesData;
+  const cultureLevelOptions = useMemo(() => buildTreeLevelOptions(cultureTree, culturePath), [cultureTree, culturePath]);
 
   const stationLineCoordLookup = useMemo(() => {
     const lookup = new globalThis.Map<string, [number, number]>();
@@ -1434,25 +1628,25 @@ export default function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentMessages, isTyping, streamingText]);
 
-  // ── handleSend ─────────────────────────────────────────────────────────────
-  const handleSend = useCallback(async () => {
-    if (!inputVal.trim() || isTyping) return;
+  // ── send message ───────────────────────────────────────────────────────────
+  const sendMessageWithQuery = useCallback(async (queryOverride?: string, forceNewSession = false) => {
+    const query = (typeof queryOverride === 'string' ? queryOverride : inputVal).trim();
+    if (!query || isTyping) return;
 
-    const userMsg: Message = { id: Date.now(), role: 'user', content: inputVal };
+    const userMsg: Message = { id: Date.now(), role: 'user', content: query };
     let sessionId = currentSessionId;
-    const isNew = !hasStarted || !currentSessionId;
+    const isNew = forceNewSession || !hasStarted || !currentSessionId;
 
     if (isNew) {
       setHasStarted(true);
       setSidebarOpen(true);
       sessionId = `session-${Date.now()}`;
       setCurrentSessionId(sessionId);
-      setSessions(prev => [{ id: sessionId!, title: inputVal.slice(0, 12), timestamp: Date.now(), messages: [userMsg] }, ...prev]);
+      setSessions(prev => [{ id: sessionId!, title: query.slice(0, 12), timestamp: Date.now(), messages: [userMsg] }, ...prev]);
     } else {
       setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, messages: [...s.messages, userMsg] } : s));
     }
 
-    const query = inputVal;
     setInputVal('');
     setIsTyping(true);
     streamingTextRef.current = '';
@@ -1592,6 +1786,25 @@ export default function App() {
       streamingTextRef.current = '';
     }
   }, [inputVal, isTyping, currentSessionId, hasStarted, sessions, apiEndpoint, apiKey, selectedModel, ttsEnabled, triggerMode, tts, routeApiEndpoint, loadRoutes, requestBrowserLocation, appLanguage]);
+
+  const handleSend = useCallback(async (queryOverride?: string | ReactMouseEvent<HTMLButtonElement>, forceNewSession = false) => {
+    const query = typeof queryOverride === 'string' ? queryOverride : undefined;
+    await sendMessageWithQuery(query, forceNewSession);
+  }, [sendMessageWithQuery]);
+
+  const handleExploreGoToStation = useCallback((stationName: string) => {
+    if (isTyping) return;
+    const target = String(stationName || '').trim();
+    if (!target) return;
+    const prompt = appLanguage === 'zh'
+      ? `从当前位置前往${target}`
+      : `How do I get from my current location to ${displayStationName(target, 'en')}?`;
+    setViewMode('chat');
+    setHistoryOpen(false);
+    setMapExpanded(false);
+    closeStationPopup();
+    void handleSend(prompt, true);
+  }, [isTyping, appLanguage, closeStationPopup, handleSend]);
 
   const handleNewChat = () => { tts.stop(); setHasStarted(false); setCurrentSessionId(null); setHistoryOpen(false); };
   const handleSelectSession = (id: string) => { tts.stop(); setCurrentSessionId(id); setHasStarted(true); setHistoryOpen(false); };
@@ -1835,6 +2048,14 @@ export default function App() {
                       onClick={() => requestMetroIntro('station', stationPopup.stationName)}>
                       {t('介绍该站周边文化', 'Introduce nearby culture')}
                     </button>
+                    <button
+                      className="metro-station-popup__action-btn"
+                      disabled={popupSimilarLoading}
+                      onClick={() => {
+                        void fetchSimilarStations(stationPopup.stationName, 'popup');
+                      }}>
+                      {popupSimilarLoading ? t('查找中…', 'Finding…') : t('找相似站点', 'Find similar stations')}
+                    </button>
                   </div>
                   {(popupIntroLoading || popupIntroText) && (
                     <div className="metro-station-popup__intro">
@@ -1855,6 +2076,32 @@ export default function App() {
                             ? t('请稍等…', 'Generating, please wait…')
                             : null}
                       </div>
+                    </div>
+                  )}
+                  {(popupSimilarLoading || popupSimilarStations.length > 0 || popupSimilarError) && (
+                    <div className="metro-station-popup__intro">
+                      <div className="metro-station-popup__intro-title">{t('相似站点推荐', 'Similar station recommendations')}</div>
+                      {popupSimilarError && (
+                        <div className="metro-station-popup__intro-body" style={{ color: '#f87171' }}>
+                          {popupSimilarError}
+                        </div>
+                      )}
+                      {!popupSimilarError && popupSimilarStations.length === 0 && popupSimilarLoading && (
+                        <div className="metro-station-popup__intro-body">{t('正在计算相似站点…', 'Calculating similar stations…')}</div>
+                      )}
+                      {!popupSimilarError && popupSimilarStations.length > 0 && (
+                        <div className="metro-similar-list">
+                          {popupSimilarStations.map((item) => (
+                            <button
+                              key={item.station_name}
+                              className="metro-similar-item"
+                              onClick={() => requestMetroIntro('station', item.station_name)}>
+                              <span className="metro-similar-item__name">{displayStationName(item.station_name, appLanguage)}</span>
+                              <span className="metro-similar-item__score">{Math.round(item.score * 100)}%</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                   <div className="metro-station-popup__footer-actions">
@@ -1932,6 +2179,11 @@ export default function App() {
         </button>
         <div className="logo-area">
           <span className="logo-text">{t('京轨 —— 在地铁上读懂北京', 'JingRail.AI: Understand Beijing on the Metro')}</span>
+          <button
+            className={`top-nav-btn ${viewMode === 'explore' ? 'active' : ''}`}
+            onClick={() => setViewMode(viewMode === 'chat' ? 'explore' : 'chat')}>
+            {viewMode === 'chat' ? t('进入探索', 'Explore') : t('返回对话', 'Back to chat')}
+          </button>
         </div>
 
         {/* TTS pill */}
@@ -1985,9 +2237,157 @@ export default function App() {
       </div>
 
       {/* Main */}
-      <div id="main" className={`${sidebarOpen ? 'sidebar-open' : ''} ${historyOpen ? 'history-open' : ''}`.trim()}>
+      <div id="main" className={`${isSidebarVisible ? 'sidebar-open' : ''} ${historyOpen ? 'history-open' : ''}`.trim()}>
         <div id="chat-area">
-          {!hasStarted ? (
+          {viewMode === 'explore' ? (
+            <div className="explore-screen">
+              <div className="explore-header">
+                <h2>{t('文化探索', 'Culture explorer')}</h2>
+                <div className="explore-header-actions">
+                  {culturePath.length > 0 && (
+                    <span className="explore-breadcrumb">{culturePath.join(' > ')}</span>
+                  )}
+                  <button
+                    className="btn-secondary"
+                    onClick={() => {
+                      setCulturePath([]);
+                      setSelectedCultureStation('');
+                      setExploreSimilarStations([]);
+                      setExploreSimilarError('');
+                    }}>
+                    {t('重置筛选', 'Reset filters')}
+                  </button>
+                </div>
+              </div>
+              <div className="explore-layout">
+                <div className="explore-panel explore-panel--tree">
+                  <div className="panel-label">{t('按文化树筛选', 'Filter by culture tree')}</div>
+                  <div className="explore-panel-body">
+                    {cultureTreeLoading && <div className="explore-empty">{t('文化树加载中…', 'Loading culture tree…')}</div>}
+                    {cultureTreeError && <div className="explore-error">{cultureTreeError}</div>}
+                    {!cultureTreeLoading && !cultureTreeError && cultureLevelOptions.length === 0 && (
+                      <div className="explore-empty">{t('暂无文化树数据', 'No culture tree data')}</div>
+                    )}
+                    {!cultureTreeLoading && !cultureTreeError && cultureLevelOptions.map((levelNodes, depth) => (
+                      <div key={`level-${depth}`} className="explore-level-block">
+                        <div className="explore-level-title">{t(`第${depth + 1}层`, `Level ${depth + 1}`)}</div>
+                        <div className="explore-chip-wrap">
+                          {levelNodes.map((node) => {
+                            const active = culturePath[depth] === node.name;
+                            return (
+                              <button
+                                key={`${depth}-${node.name}`}
+                                className={`explore-chip ${active ? 'active' : ''}`}
+                                onClick={() => {
+                                  setCulturePath([...culturePath.slice(0, depth), node.name]);
+                                  setSelectedCultureStation('');
+                                  setExploreSimilarStations([]);
+                                  setExploreSimilarError('');
+                                }}>
+                                <span>{node.name}</span>
+                                <span className="explore-chip-count">{node.count}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                    {!cultureTreeLoading && !cultureTreeError && culturePath.length === 0 && (
+                      <div className="explore-guide">
+                        {t('先选择至少一个标签层级，再展示候选站点。', 'Pick at least one tag level to reveal candidate stations.')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="explore-panel explore-panel--candidates">
+                  <div className="panel-label">{t('候选站点', 'Candidate stations')}</div>
+                  <div className="explore-panel-body">
+                    {culturePath.length === 0 && (
+                      <div className="explore-empty">{t('先在左侧选择标签层级，再显示候选站点。', 'Choose labels in the left column first.')}</div>
+                    )}
+                    {culturePath.length > 0 && cultureStationsLoading && <div className="explore-empty">{t('站点加载中…', 'Loading stations…')}</div>}
+                    {culturePath.length > 0 && cultureStationsError && <div className="explore-error">{cultureStationsError}</div>}
+                    {culturePath.length > 0 && !cultureStationsLoading && !cultureStationsError && cultureStations.length === 0 && (
+                      <div className="explore-empty">{t('当前标签下暂无站点', 'No stations under current labels')}</div>
+                    )}
+                    {culturePath.length > 0 && !cultureStationsLoading && !cultureStationsError && cultureStations.length > 0 && (
+                      <div className="explore-station-list">
+                        {cultureStations.map((station) => (
+                          <div
+                            key={station.station_name}
+                            className={`explore-station-card ${selectedCultureStation === station.station_name ? 'active' : ''}`}>
+                            <div className="explore-station-title">{displayStationName(station.station_name, appLanguage)}</div>
+                            <div className="explore-station-summary">{station.story_summary || t('暂无简介', 'No summary')}</div>
+                            <div className="explore-chip-wrap">
+                              {station.culture_tags.slice(0, 4).map((tag) => (
+                                <span key={`${station.station_name}-${tag}`} className="explore-mini-chip">{tag}</span>
+                              ))}
+                            </div>
+                            <div className="explore-station-actions">
+                              <button
+                                className="btn-secondary"
+                                onClick={() => {
+                                  setSelectedCultureStation(station.station_name);
+                                  void fetchSimilarStations(station.station_name, 'explore');
+                                }}>
+                                {t('找相似站点', 'Find similar stations')}
+                              </button>
+                              <button
+                                className="btn-secondary"
+                                disabled={isTyping}
+                                onClick={() => {
+                                  handleExploreGoToStation(station.station_name);
+                                }}>
+                                {t('前往', 'Go')}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="explore-panel explore-panel--similar">
+                  <div className="panel-label">{t('相似推荐 Top-K', 'Top-K similar stations')}</div>
+                  <div className="explore-panel-body">
+                    {!selectedCultureStation && <div className="explore-empty">{t('在中间列点击“找相似站点”后，这里显示推荐结果。', 'Use “Find similar stations” in the middle column to view results here.')}</div>}
+                    {selectedCultureStation && exploreSimilarLoading && (
+                      <div className="explore-empty">{t('正在计算相似站点…', 'Calculating similar stations…')}</div>
+                    )}
+                    {selectedCultureStation && exploreSimilarError && <div className="explore-error">{exploreSimilarError}</div>}
+                    {selectedCultureStation && !exploreSimilarLoading && !exploreSimilarError && exploreSimilarStations.length === 0 && (
+                      <div className="explore-empty">{t('暂无推荐结果', 'No recommendations')}</div>
+                    )}
+                    {exploreSimilarStations.length > 0 && (
+                      <div className="explore-similar-list">
+                        {exploreSimilarStations.map((item) => (
+                          <div key={item.station_name} className="explore-similar-item">
+                            <div className="explore-similar-item__head">
+                              <span>{displayStationName(item.station_name, appLanguage)}</span>
+                              <strong>{Math.round(item.score * 100)}%</strong>
+                            </div>
+                            <div className="explore-similar-item__reason">{item.reasons.join('；') || t('标签相近', 'Similar labels')}</div>
+                            <div className="explore-similar-item__actions">
+                              <button
+                                className="btn-secondary"
+                                disabled={isTyping}
+                                onClick={() => {
+                                  handleExploreGoToStation(item.station_name);
+                                }}>
+                                {t('前往', 'Go')}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : !hasStarted ? (
             <div className="welcome-screen">
               <div className="welcome-logo">
                 <div className="metro-icon large">
@@ -2083,6 +2483,7 @@ export default function App() {
       </div>
 
       {/* Right sidebar */}
+      {viewMode === 'chat' && (
       <div id="sidebar" className={sidebarOpen ? 'open' : ''}>
         <div className="resize-handle resize-handle-right" onMouseDown={(e) => startResize('right', e)} />
         <div className="sidebar-section sidebar-route-section">
@@ -2154,8 +2555,9 @@ export default function App() {
           </div>
         </div>
       </div>
+      )}
 
-      {mapExpanded && (
+      {viewMode === 'chat' && mapExpanded && (
         <div className="map-fullscreen-overlay" onClick={() => setMapExpanded(false)}>
           <div className="map-fullscreen-content" onClick={e => e.stopPropagation()}>
             <button className="map-close-btn" onClick={() => setMapExpanded(false)}>{t('关闭', 'Close')}</button>
