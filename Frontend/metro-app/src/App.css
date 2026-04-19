@@ -1111,15 +1111,15 @@ html, body {
 
 /* 地图站点 Popup（Mapbox 浮层内）— 整栏一处滚动，不在介绍区内再套一层 */
 .metro-station-popup {
-  padding: 6px 4px 4px;
-  min-width: 200px;
-  max-width: min(320px, 80vw);
-  max-height: min(52vh, 380px);
+  padding: 10px 10px 10px;
+  min-width: 220px;
+  max-width: min(380px, 90vw);
+  max-height: min(64vh, 460px);
   overflow-x: hidden;
   overflow-y: auto;
   box-sizing: border-box;
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.55;
   color: var(--text-primary, #1a1a1a);
   text-align: left;
 }
@@ -1186,9 +1186,9 @@ html, body {
 }
 .metro-station-popup__row {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: flex-start;
-  margin-top: 6px;
+  margin-top: 10px;
 }
 .metro-station-popup__label {
   flex-shrink: 0;
@@ -1234,6 +1234,48 @@ html, body {
   text-align: left;
   font-size: 12px;
   line-height: 1.4;
+}
+.metro-station-popup__adjacent-block {
+  margin-top: 12px;
+  padding: 10px 10px 6px;
+  border-radius: 12px;
+  background: var(--bg-secondary, #f7f7f5);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+.metro-station-popup__adjacent-title {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--text-secondary, #4b5563);
+}
+.metro-station-popup__adjacent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.metro-station-popup__adjacent-line {
+  padding: 10px 10px 8px;
+  border-radius: 10px;
+  background: var(--bg-primary, #ffffff);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+.metro-station-popup__adjacent-line-name {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.metro-station-popup__adjacent-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.metro-station-popup__adjacent-item-label {
+  color: var(--text-secondary, #666);
+  min-width: 3.3rem;
+  flex-shrink: 0;
 }
 .metro-station-popup__line-btn:hover {
   text-decoration: underline;

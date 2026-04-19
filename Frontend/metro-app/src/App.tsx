@@ -393,6 +393,25 @@ function geometryToPaths(geometry: Geometry | null | undefined): [number, number
   return [];
 }
 
+function getNearestPathVertexIndex(paths: [number, number][][], coord: [number, number]): number | null {
+  let bestIndex = Infinity;
+  let bestDist = Infinity;
+  let offset = 0;
+  for (const path of paths) {
+    for (let i = 0; i < path.length; i += 1) {
+      const dx = path[i][0] - coord[0];
+      const dy = path[i][1] - coord[1];
+      const dist = dx * dx + dy * dy;
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestIndex = offset + i;
+      }
+    }
+    offset += path.length;
+  }
+  return bestIndex === Infinity ? null : bestIndex;
+}
+
 function buildPolylineBetweenPoints(
   paths: [number, number][][],
   start: [number, number],
@@ -800,7 +819,7 @@ export default function App() {
     };
   }, [pointGeojson]);
 
-  type StationPopupState = { longitude: number; latitude: number; stationName: string; lines: string[]; status: string };
+  type StationPopupState = { longitude: number; latitude: number; stationName: string; lines: string[]; status: string; adjacentStations?: Array<{ lineName: string; previous: string; next: string }>; };
   const [stationPopup, setStationPopup] = useState<StationPopupState | null>(null);
   const [popupIntroLoading, setPopupIntroLoading] = useState(false);
   const [popupIntroTitle, setPopupIntroTitle] = useState('');
@@ -1145,6 +1164,79 @@ export default function App() {
     }
   }
 
+  const linePathsByLineName = useMemo(() => {
+    const lookup = new globalThis.Map<string, [number, number][][]>();
+    if (!lineGeojson) return lookup;
+    for (const f of lineGeojson.features) {
+      const rawName = typeof f.properties?.line_name === 'string' ? f.properties.line_name : '';
+      if (!rawName) continue;
+      const paths = geometryToPaths(f.geometry);
+      if (paths.length === 0) continue;
+      const current = lookup.get(rawName) || [];
+      current.push(...paths);
+      lookup.set(rawName, current);
+    }
+    return lookup;
+  }, [lineGeojson]);
+
+  const linePathsByBaseName = useMemo(() => {
+    const lookup = new globalThis.Map<string, [number, number][][]>();
+    if (!lineGeojson) return lookup;
+    for (const f of lineGeojson.features) {
+      const rawName = typeof f.properties?.line_name === 'string' ? f.properties.line_name : '';
+      const base = normalizeLineBaseName(rawName);
+      if (!base) continue;
+      const paths = geometryToPaths(f.geometry);
+      if (paths.length === 0) continue;
+      const current = lookup.get(base) || [];
+      current.push(...paths);
+      lookup.set(base, current);
+    }
+    return lookup;
+  }, [lineGeojson]);
+
+  const stationLineNeighborLookup = useMemo(() => {
+    const lookup = new globalThis.Map<string, { previous: string; next: string }>();
+    if (!pointGeojson) return lookup;
+
+    const stationEntriesByLine = new globalThis.Map<string, Array<{ stationName: string; coord: [number, number] }>>();
+    for (const f of pointGeojson.features) {
+      if (!f.geometry || f.geometry.type !== 'Point') continue;
+      const coords = f.geometry.coordinates;
+      const lng = Number(coords[0]);
+      const lat = Number(coords[1]);
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
+      const stationName = String(f.properties?.station_name || '').trim();
+      const lineRaw = String(f.properties?.line_name || '').trim();
+      if (!stationName || !lineRaw) continue;
+      const list = stationEntriesByLine.get(lineRaw) || [];
+      list.push({ stationName, coord: [lng, lat] });
+      stationEntriesByLine.set(lineRaw, list);
+    }
+
+    for (const [lineRaw, entries] of stationEntriesByLine.entries()) {
+      const baseLineName = normalizeLineBaseName(lineRaw);
+      const paths = linePathsByLineName.get(lineRaw) || linePathsByBaseName.get(baseLineName) || [];
+      if (paths.length === 0) continue;
+      const indexed = entries
+        .map((entry) => {
+          const index = getNearestPathVertexIndex(paths, entry.coord);
+          return index === null ? null : { ...entry, index };
+        })
+        .filter((item): item is { stationName: string; coord: [number, number]; index: number } => item !== null);
+      if (indexed.length === 0) continue;
+      indexed.sort((a, b) => a.index - b.index);
+      const orderedNames = Array.from(new Set(indexed.map((item) => item.stationName)));
+      for (let idx = 0; idx < orderedNames.length; idx += 1) {
+        lookup.set(`${orderedNames[idx]}@@${lineRaw}`, {
+          previous: idx > 0 ? orderedNames[idx - 1] : '',
+          next: idx < orderedNames.length - 1 ? orderedNames[idx + 1] : '',
+        });
+      }
+    }
+    return lookup;
+  }, [pointGeojson, linePathsByLineName]);
+
   const onMetroMapClick = useCallback((e: MapLayerMouseEvent) => {
     const selectedFeats = (e.features ?? []).filter(f => f.layer?.id === 'selected-route-stations-layer');
     const baseFeats = (e.features ?? []).filter(f => f.layer?.id === 'beijing-points-layer');
@@ -1176,14 +1268,28 @@ export default function App() {
     setPopupSimilarStations([]);
     setPopupSimilarLoading(false);
     setPopupSimilarError('');
+    const adjacentStations = [...lineSet]
+      .sort()
+      .map((line) => {
+        const lineRaw = String(line || '').trim();
+        const key = `${stationName}@@${lineRaw}`;
+        const neighbor = stationLineNeighborLookup.get(key);
+        return {
+          lineName: line,
+          previous: neighbor?.previous || '',
+          next: neighbor?.next || '',
+        };
+      });
+
     setStationPopup({
       longitude: lng,
       latitude: lat,
       stationName: stationName || (appLanguage === 'zh' ? '未知站点' : 'Unknown station'),
       lines: [...lineSet].sort(),
       status: [...statusSet].join(' / ') || '—',
+      adjacentStations,
     });
-  }, [appLanguage, closeStationPopup, tts]);
+  }, [appLanguage, closeStationPopup, stationLineNeighborLookup, tts]);
 
   const onMetroMapMouseMove = useCallback((e: MapLayerMouseEvent) => {
     const hit = (e.features ?? []).some(
@@ -1218,22 +1324,6 @@ export default function App() {
     }
     return lookup;
   }, [pointGeojson]);
-
-  const linePathsByBaseName = useMemo(() => {
-    const lookup = new globalThis.Map<string, [number, number][][]>();
-    if (!lineGeojson) return lookup;
-    for (const f of lineGeojson.features) {
-      const rawName = typeof f.properties?.line_name === 'string' ? f.properties.line_name : '';
-      const base = normalizeLineBaseName(rawName);
-      if (!base) continue;
-      const paths = geometryToPaths(f.geometry);
-      if (paths.length === 0) continue;
-      const current = lookup.get(base) || [];
-      current.push(...paths);
-      lookup.set(base, current);
-    }
-    return lookup;
-  }, [lineGeojson]);
 
   const stationPoints = useMemo(() => {
     const items: Array<{ stationName: string; longitude: number; latitude: number }> = [];
@@ -2041,6 +2131,28 @@ export default function App() {
                       ))}
                     </ul>
                   </div>
+                  {stationPopup.adjacentStations && stationPopup.adjacentStations.length > 0 && (
+                    <div className="metro-station-popup__adjacent-block">
+                      <div className="metro-station-popup__adjacent-title">{t('上一站 / 下一站', 'Adjacent stations')}</div>
+                      <div className="metro-station-popup__adjacent-list">
+                        {stationPopup.adjacentStations.map(({ lineName, previous, next }) => (
+                          <div className="metro-station-popup__adjacent-line" key={lineName}>
+                            <div className="metro-station-popup__adjacent-line-name">
+                              {displayLineName(lineName, appLanguage)}
+                            </div>
+                            <div className="metro-station-popup__adjacent-item">
+                              <span className="metro-station-popup__adjacent-item-label">{t('上一站', 'Prev')}</span>
+                              <span>{previous || '—'}</span>
+                            </div>
+                            <div className="metro-station-popup__adjacent-item">
+                              <span className="metro-station-popup__adjacent-item-label">{t('下一站', 'Next')}</span>
+                              <span>{next || '—'}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="metro-station-popup__actions">
                     <button
                       className="metro-station-popup__action-btn"

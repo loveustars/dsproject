@@ -262,16 +262,23 @@ function buildLineSegments(graph, nodePath, lineSequence) {
   return segments;
 }
 
+const TRANSFER_PENALTY_MINUTES = 5; // 每换乘增加5分钟惩罚
+
 function aStarRoute(graph, originId, destinationId) {
   const open = new Set([originId]);
   const cameFrom = {};
   const gScore = { [originId]: 0 };
   const fScore = {
-    [originId]: haversineMeters(
-      graph.stations[originId].location,
-      graph.stations[destinationId].location
+    [originId]: estimateMinutes(
+      haversineMeters(
+        graph.stations[originId].location,
+        graph.stations[destinationId].location
+      ),
+      0
     )
   };
+  const transferCount = { [originId]: 0 };
+  const lastLine = { [originId]: "" };
 
   while (open.size > 0) {
     let current = null;
@@ -290,15 +297,22 @@ function aStarRoute(graph, originId, destinationId) {
 
     const neighbors = graph.adjacency[current] || [];
     for (const edge of neighbors) {
-      const tentativeG = (gScore[current] ?? Infinity) + edge.distance;
+      const isTransfer = edge.lineKey !== lastLine[current];
+      const newTransferCount = transferCount[current] + (isTransfer ? 1 : 0);
+      const tentativeG = (gScore[current] ?? Infinity) + estimateMinutes(edge.distance, 1) + (isTransfer ? TRANSFER_PENALTY_MINUTES : 0);
       if (tentativeG < (gScore[edge.to] ?? Infinity)) {
         cameFrom[edge.to] = current;
         gScore[edge.to] = tentativeG;
+        transferCount[edge.to] = newTransferCount;
+        lastLine[edge.to] = edge.lineKey;
         fScore[edge.to] =
           tentativeG +
-          haversineMeters(
-            graph.stations[edge.to].location,
-            graph.stations[destinationId].location
+          estimateMinutes(
+            haversineMeters(
+              graph.stations[edge.to].location,
+              graph.stations[destinationId].location
+            ),
+            0
           );
         open.add(edge.to);
       }
