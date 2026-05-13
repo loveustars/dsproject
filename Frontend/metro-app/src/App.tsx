@@ -630,7 +630,6 @@ function formatDistanceText(distanceMeters: number | undefined, lang: 'zh' | 'en
   return lang === 'zh' ? `路程: ${km}公里` : `Distance: ${km} km`;
 }
 
-// 评估箭头样式时可快速切换：true=反色箭头，false=黑色箭头
 const USE_INVERTED_ARROW_COLOR = true;
 
 function parseRouteItemsFromSegments(route?: RouteType): ParsedRouteLabelItem[] {
@@ -701,7 +700,6 @@ function extractSegmentedRouteFeatures(route?: RouteType): Array<{ coordinates: 
       }))
       .filter(seg => seg.coordinates.length >= 2);
     if (direct.length > 0) {
-      // 只用于地图绘制：保留换乘站作为下一段起点，但将重合点轻微错开，形成可见断开。
       const broken: Array<{ coordinates: [number, number][]; color: string }> = [];
       for (const seg of direct) {
         const coords = seg.coordinates.map(c => [c[0], c[1]] as [number, number]);
@@ -881,7 +879,6 @@ export default function App() {
   const fullscreenMapRef = useRef<MapRef | null>(null);
 
   // ─── GeoJSON Layers (public/) ───────────────────────────────────────────
-  // 浏览器无法直接读取你本机的 D:\\... 绝对路径，这里约定文件放在 public 下：
   // /geojson_data/line/wgs84/beijing.geojson
   // /geojson_data/point/wgs84/beijing.geojson
   const GEOJSON_LINE_URL = '/geojson_data/line_wgs84/beijing.geojson';
@@ -997,7 +994,6 @@ export default function App() {
   useEffect(() => { localStorage.setItem('metro-tts-voice-ja', ttsVoiceJa); },         [ttsVoiceJa]);
   useEffect(() => { localStorage.setItem('metro-tts-voice-en', ttsVoiceEn); },         [ttsVoiceEn]);
 
-  // 兼容迁移：历史版本可能保存了不稳定的直连地址，这里自动切回本地代理
   useEffect(() => {
     const old = localStorage.getItem('metro-tts-ws') || '';
     if (old.includes('openspeech.bytedance.com')) {
@@ -1782,7 +1778,6 @@ export default function App() {
       };
     }
 
-    // auto: 选择离地铁站网络更“合理”的一个（减少国内坐标偏移导致的站点匹配错误）
     if (convertedDist + 80 < directDist) {
       return {
         longitude: gcjCandidate.longitude,
@@ -1988,7 +1983,6 @@ export default function App() {
       pushConversationSnapshot();
     }
     setSelectedRoute(idx);
-    // 即使点击同一栏位，也强制触发一次地图定位。
     setTimeout(() => {
       fitSelectedRouteOnMap(sidebarMapRef, idx);
       if (mapExpanded) fitSelectedRouteOnMap(fullscreenMapRef, idx);
@@ -2197,7 +2191,6 @@ export default function App() {
           : s
       ));
 
-      // 先结束流式态，避免同一条消息短暂出现两份（流式+最终消息）。
       setIsTyping(false);
       setStreamingText('');
       streamingTextRef.current = '';
@@ -2419,7 +2412,7 @@ export default function App() {
                   layout={{
                     'symbol-placement': 'line',
                     'symbol-spacing': 22,
-                    'text-field': '➠', // ➜➠⇨➡🡺➣➧
+                    'text-field': '', // ⇨
                     'text-size': 22,
                     'text-font': ['Open Sans Semibold', 'Arial Unicode MS Regular'],
                     'text-allow-overlap': true,
@@ -2453,7 +2446,7 @@ export default function App() {
                   layout={{
                     'symbol-placement': 'line',
                     'symbol-spacing': 18,
-                    'text-field': '➠',
+                    'text-field': '',
                     'text-size': 18,
                     'text-font': ['Open Sans Semibold', 'Arial Unicode MS Regular'],
                     'text-allow-overlap': true,
@@ -3346,7 +3339,7 @@ export default function App() {
                     </div>
 
                     {/*<div className="tts-info-card mt-4">
-                      <div className="tts-info-title">⚡ 工作原理</div>
+                      <div className="tts-info-title"> 工作原理</div>
                       <div className="tts-info-body">
                         LLM 流式输出 → 按标点断句 → 每句建立独立 WebSocket 连接推送到火山 TTS → 接收 MP3 分片 → AudioContext 解码按序队列播放。多句并发请求，有序播放保证连贯。
                       </div>

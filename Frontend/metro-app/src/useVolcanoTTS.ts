@@ -23,12 +23,11 @@
 import { useRef, useCallback, useState } from 'react';
 
 // ── 断句正则 ─────────────────────────────────────────────────────────────────
-// 匹配以句末标点结尾的完整句子
 const SENTENCE_END_RE = /[^。！？!?.…\n]+[。！？!?.…\n]+/g;
 /** 流式首 token 常为单字，若要求 ≥2 会丢掉首字，导致下一段从句中开始播 */
 const MIN_CHUNK_LEN = 1;
-const MAX_BUFFER_LEN = 80; // 缓冲区超过此长度强制切分（防止句子过长）
-const IDLE_FLUSH_MS = 260; // 增量流在短暂静默后提前冲刷，减少“像等全文输出”的体感
+const MAX_BUFFER_LEN = 80;
+const IDLE_FLUSH_MS = 260;
 
 /** 流式 idle 冲刷：若以逗号/顿号等「软停顿」结尾且尚无句号，不单独送 TTS（单独首分句易合成空/失败，表现为「只从第二分句播」） */
 function shouldDeferIdleFlush(pending: string): boolean {
@@ -40,7 +39,7 @@ function shouldDeferIdleFlush(pending: string): boolean {
 }
 
 function detectLang(text: string): 'zh' | 'ja' | 'en' | 'multi' {
-  const hasJa = /[\u3040-\u30ff]/.test(text); // 平假名/片假名
+  const hasJa = /[\u3040-\u30ff]/.test(text);
   const hasCjk = /[\u4e00-\u9fff]/.test(text);
   const hasEn = /[A-Za-z]/.test(text);
 
@@ -58,8 +57,6 @@ function splitMixedLanguage(text: string): string[] {
   const src = text.trim();
   if (!src) return [];
 
-  // 不要按按字符语言类型拆分（汉字和假名混排会被强行切断，造成一半中文一半日文）。
-  // 只需要按标点符号长短句拆分即可。火山 TTS 大模型会自动根据整句的上下文识别语言。
   const hardBreak = /[。！？!?\n]/;
   const softBreak = /[,，;；:：、]/;
   const result: string[] = [];
@@ -80,7 +77,6 @@ function splitMixedLanguage(text: string): string[] {
     cur += ch;
     if (ch === ' ') lastSpaceIdx = cur.length - 1;
     if (hasKana(ch)) curHasKana = true;
-    // 如果句子足够长，允许在软停顿处切分（含假名则尽量不断句）
     if (softBreak.test(ch) && cur.trim().length >= 12 && !curHasKana) {
       result.push(cur.trim());
       cur = '';
@@ -88,7 +84,6 @@ function splitMixedLanguage(text: string): string[] {
       continue;
     }
 
-    // 防止单段过长（超过 60 字符强制切，尽量找个空格或词间）
     if (cur.length >= 60) {
       if (lastSpaceIdx > 10 && /[A-Za-z]/.test(cur)) {
         const left = cur.slice(0, lastSpaceIdx).trim();
@@ -113,8 +108,8 @@ function splitMixedLanguage(text: string): string[] {
 // 消息头 magic bytes (Version=1, HeaderSize=1, MessageType, Flags, SerialMethod=JSON, Compression=None, Reserved)
 const PROTOCOL_VERSION = 0x01;
 const HEADER_SIZE      = 0x01; // 4 bytes header, unit=4bytes → 1*4=4
-const MESSAGE_TYPE_FULL_CLIENT  = 0x01; // 客户端完整请求
-const MESSAGE_TYPE_AUDIO_ONLY   = 0x0b; // 服务端仅音频（二进制）
+const MESSAGE_TYPE_FULL_CLIENT  = 0x01;
+const MESSAGE_TYPE_AUDIO_ONLY   = 0x0b;
 const MESSAGE_FLAGS_NONE  = 0x00;
 const SERIAL_METHOD_JSON  = 0x01;
 const COMPRESSION_NONE    = 0x00;
@@ -178,7 +173,6 @@ function parseServerMessage(data: ArrayBuffer): { audio: ArrayBuffer | null; isL
   return { audio: null, isLast, msgTypeHex };
 }
 
-// ── Options ──────────────────────────────────────────────────────────────────
 export interface VolcanoTTSOptions {
   /** 代理 URL 或带 token 的火山 WS URL
    *  代理模式: 'ws://localhost:8765'
@@ -233,11 +227,8 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
 
   // WebSocket 实例
   const wsRef = useRef<WebSocket | null>(null);
-  // AudioContext（懒创建，须在用户手势后）
   const audioCtxRef = useRef<AudioContext | null>(null);
 
-  // 有序播放队列：{ index, chunks, done, silencePrime? }
-  // silencePrime：流式开始时插入的本地静音，不占火山连接；用于抵消「首包合成/解码偶发被吞」
   const audioQueueRef   = useRef<
     { index: number; chunks: ArrayBuffer[]; done: boolean; silencePrime?: boolean }[]
   >([]);
@@ -245,18 +236,14 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
   const isPlayingRef    = useRef(false);
   const currentSrcRef   = useRef<AudioBufferSourceNode | null>(null);
 
-  // 当前正在积累 chunks 的 slot index
   const currentSlotIdx  = useRef(0);
 
-  // 文本缓冲
   const textBufferRef   = useRef('');
   const streamDoneRef   = useRef(false);
   const idleFlushTimerRef = useRef<number | null>(null);
 
-  // 请求序列号（每次 speak 调用递增）
   const reqIdRef = useRef(0);
 
-  // 合成队列（串行发送到 TTS，避免多连接并发导致 workflow/resource 阻塞）
   const synthQueueRef = useRef<{ slotIndex: number; text: string }[]>([]);
   const isSynthesizingRef = useRef(false);
 
@@ -287,7 +274,7 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
     const expected = nextPlayIdx.current;
     const slot = audioQueueRef.current.find(s => s.index === expected);
     if (!slot) return;
-    if (!slot.done) return; // 还在接收中，等收完
+    if (!slot.done) return;
 
     if (slot.silencePrime) {
       const ctx = getAudioCtx();
@@ -335,7 +322,6 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
       return;
     }
 
-    // 合并所有 chunks
     const totalLen = slot.chunks.reduce((acc, c) => acc + c.byteLength, 0);
     const merged = new Uint8Array(totalLen);
     let offset = 0;
@@ -350,7 +336,6 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
 
     try {
       const ctx = getAudioCtx();
-      // 流式首句常在 setTimeout(idle flush) 后播放，已脱离用户手势；同步 resume() 未 await 时上下文仍为 suspended，会整段无声并被误认为「跳过首句」
       if (ctx.state !== 'running') {
         try {
           await ctx.resume();
@@ -371,7 +356,6 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
         currentSrcRef.current = null;
         nextPlayIdx.current++;
 
-        // 检查是否全部播完
         const allDone = streamDoneRef.current &&
           audioQueueRef.current.length === 0 &&
           nextPlayIdx.current >= currentSlotIdx.current;
@@ -389,7 +373,6 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
     }
   }, [getAudioCtx, addLog]);
 
-  // ── 建立 WebSocket 并发送一句话（底层执行器：由串行队列调度） ───────────────
   const speakSentence = useCallback((text: string, slotIndex: number) => {
     const cleanText = text.replace(/\*\*/g, '').replace(/`/g, '').trim();
     if (!cleanText) {
@@ -399,13 +382,11 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
       return;
     }
 
-    // 为这句话分配一个 slot
     audioQueueRef.current.push({ index: slotIndex, chunks: [], done: false });
     
     const urlObj = new URL(opts.wsUrl);
     const isVolcanoDirectHost = /(^|\.)openspeech\.bytedance\.com$/i.test(urlObj.hostname);
     if (opts.appId && opts.token && !isVolcanoDirectHost) {
-      // Proxy 模式：无论是 localhost 还是局域网 IP，都通过 query 传给本地代理。
       urlObj.searchParams.set('appid', opts.appId);
       urlObj.searchParams.set('token', opts.token);
     }
@@ -461,7 +442,6 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
 
       ws.onopen = () => {
         console.log(`[TTS] WS opened for slot ${slotIndex}, sending text...`);
-        // 发送完整请求（fire-and-forget per sentence）
         const reqId = `req-${Date.now()}-${slotIndex}`;
         const resolvedVoice =
           opts.voiceTypeMap?.[ttsLang as 'zh' | 'ja' | 'en'] ||
@@ -500,7 +480,6 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
         });
         ws?.send(payload);
 
-        // 防卡死兜底：服务端异常不回 last chunk 时，强制结束当前 slot
         watchdogTimer = window.setTimeout(() => {
           finalizeSlot('watchdog-timeout');
         }, 12000);
@@ -523,13 +502,11 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
           slot.chunks.push(audio);
 
           if (inactivityTimer) window.clearTimeout(inactivityTimer);
-          // 一段时间未收到新分片，视为服务端未发 last 标记，强制切下一段
           inactivityTimer = window.setTimeout(() => {
             finalizeSlot('audio-inactivity-timeout');
           }, 1200);
         }
 
-        // 错误/控制消息：避免一直占住“播放中”
         if (jsonStr && (msgTypeHex === '0xf' || msgTypeHex === '0xc')) {
           finalizeSlot('server-error-or-control');
           return;
@@ -548,7 +525,7 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
           addLog(`提示：由于浏览器不支持传递 Authorization Header，通常纯前端直连 wss://openspeech.bytedance.com 会报 403/401 握手失败。如果你没有在后台针对该 AppID 开启 URL Param Auth，请使用 ws://localhost:8765 本地代理。`);
         }
         const slot = audioQueueRef.current.find(s => s.index === slotIndex);
-        if (slot) slot.done = true; // 跳过这句
+        if (slot) slot.done = true;
         finalizeSlot('ws-error', false);
       };
 
@@ -557,7 +534,6 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
         finalizeSlot('ws-close', false);
       };
 
-      // 保存 ws 引用以便 stop() 可关闭
       wsRef.current = ws;
     };
 
@@ -599,7 +575,6 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
       idleFlushTimerRef.current = null;
     }
 
-    // 提取完整句子（用 match.index 累计已消费长度，避免 lastIndexOf 在重复子串时切错导致丢字）
     SENTENCE_END_RE.lastIndex = 0;
     const sentences: string[] = [];
     let consumedEnd = 0;
@@ -609,7 +584,6 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
       consumedEnd = match.index + match[0].length;
     }
 
-    // 强制切分超长缓冲（尽量避免英文断词）
     if (sentences.length === 0 && textBufferRef.current.length > MAX_BUFFER_LEN) {
       const buf = textBufferRef.current;
       const lastSpace = buf.lastIndexOf(' ');
@@ -628,7 +602,6 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
       enqueueSentence(s);
     }
 
-    // 若短时间没有新 token，提前冲刷缓冲（不必等句号）
     idleFlushTimerRef.current = window.setTimeout(() => {
       const pending = textBufferRef.current.trim();
       if (!pending) return;
@@ -661,14 +634,12 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
     setIsConnecting(true);
     setError(null);
 
-    // 重置状态
     audioQueueRef.current = [];
     nextPlayIdx.current = 0;
     currentSlotIdx.current = 0;
     streamDoneRef.current = false;
     textBufferRef.current = '';
 
-    // 按句子切分后依次合成
     const parts = text.match(SENTENCE_END_RE) || [text];
     const remaining = text.replace(SENTENCE_END_RE, '').trim();
 
@@ -690,7 +661,6 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
     stopAll();
     audioQueueRef.current = [];
     nextPlayIdx.current = 0;
-    // 索引 0 预留给本地静音槽，正文 TTS 从 1 起，与「首路火山偶发无声」错开
     currentSlotIdx.current = 1;
     isPlayingRef.current = false;
     textBufferRef.current = '';
@@ -737,11 +707,9 @@ export function useVolcanoTTS(opts: VolcanoTTSOptions) {
   const stop = useCallback(stopAll, []);
 
   return {
-    // 流式模式
     pushTextDelta,
     flushRemaining,
     startSession,
-    // 手动模式
     speakFull,
     // 控制
     stop,
