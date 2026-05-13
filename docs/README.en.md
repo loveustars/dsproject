@@ -125,19 +125,19 @@ npm run dev
 ## Mobile version
 
 <div align="center">
-  <video src="./docs/mobile.mp4" controls width="80%"></video>
+  <video src="https://github.com/loveustars/dsproject/tree/main/docs/mobile.mp4" controls width="80%"></video>
   <br/>
 </div>
 
 ## Withdrawal & recovery
 <div align="center">
-  <video src="./docs/wr.mp4" controls width="80%"></video>
+  <video src="https://github.com/loveustars/dsproject/tree/main/docs/wr.mp4" controls width="80%"></video>
   <br/>
 </div>
 
 ## Knowledge graph
 <div align="center">
-  <video src="./docs/graph.mp4" controls width="80%"></video>
+  <video src="https://github.com/loveustars/dsproject/tree/main/docs/graph.mp4" controls width="80%"></video>
   <br/>
 </div>
 
