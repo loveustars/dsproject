@@ -122,22 +122,13 @@ npm run dev
 
 ## Version mobile
 
-<div align="center">
-  <video src="./docs/mobile.mp4" controls width="80%"></video>
-  <br/>
-</div>
+![mobile](./../docs/mobile.gif)
 
 ## Annulation et récupération
-<div align="center">
-  <video src="./docs/wr.mp4" controls width="80%"></video>
-  <br/>
-</div>
+![wt](./../docs/wr.gif)
 
 ## Graphe de connaissances
-<div align="center">
-  <video src="./docs/graph.mp4" controls width="80%"></video>
-  <br/>
-</div>
+![graph](./../docs/graph.gif)
 
 ---
 

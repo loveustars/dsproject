@@ -124,22 +124,13 @@ npm run dev
 
 ## Mobile version
 
-<div align="center">
-  <video src="https://github.com/loveustars/dsproject/tree/main/docs/mobile.mp4" controls width="80%"></video>
-  <br/>
-</div>
+![mobile](./../docs/mobile.gif)
 
 ## Withdrawal & recovery
-<div align="center">
-  <video src="https://github.com/loveustars/dsproject/tree/main/docs/wr.mp4" controls width="80%"></video>
-  <br/>
-</div>
+![wt](./../docs/wr.gif)
 
 ## Knowledge graph
-<div align="center">
-  <video src="https://github.com/loveustars/dsproject/tree/main/docs/graph.mp4" controls width="80%"></video>
-  <br/>
-</div>
+![graph](./../docs/graph.gif)
 
 ---
 

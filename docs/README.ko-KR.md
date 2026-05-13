@@ -122,22 +122,13 @@ npm run dev
 
 ## 모바일 버전
 
-<div align="center">
-  <video src="./docs/mobile.mp4" controls width="80%"></video>
-  <br/>
-</div>
+![mobile](./../docs/mobile.gif)
 
 ## 실행 취소 및 복구
-<div align="center">
-  <video src="./docs/wr.mp4" controls width="80%"></video>
-  <br/>
-</div>
+![wt](./../docs/wr.gif)
 
 ## 지식 그래프
-<div align="center">
-  <video src="./docs/graph.mp4" controls width="80%"></video>
-  <br/>
-</div>
+![graph](./../docs/graph.gif)
 
 ---
 

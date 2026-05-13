@@ -159,22 +159,13 @@ npm run dev
 
 ## 移动端版本
 
-<div align="center">
-  <video src="./docs/mobile.mp4" controls width="80%"></video>
-  <br/>
-</div>
+![mobile](./docs/mobile.gif)
 
 ## 撤回与状态恢复
-<div align="center">
-  <video src="./docs/wr.mp4" controls width="80%"></video>
-  <br/>
-</div>
+![wt](./docs/wr.gif)
 
 ## 知识图谱
-<div align="center">
-  <video src="./docs/graph.mp4" controls width="80%"></video>
-  <br/>
-</div>
+![graph](./docs/graph.gif)
 
 ---
 
