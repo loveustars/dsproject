@@ -7,7 +7,7 @@
 京軌 (JingRail.AI) は、北京を訪れる国内外の観光客のために特別に作られた、インテリジェントな地下鉄文化観光ガイドシステムです。これは単なる地下鉄の経路探索ツールではなく、LLM推論、エージェント、A*最適経路探索、そしてリアルタイムストリーミング音声合成(TTS)を組み合わせた没入型の文化発信プラットフォームです。
 
 <div align="center">
-  <video src="./docs/en.mp4" controls width="80%"></video>
+  <video src="https://www.bilibili.com/video/BV13h5m6tEt3" controls width="80%"></video>
   <br/>
 </div>
 

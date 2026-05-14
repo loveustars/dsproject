@@ -8,7 +8,7 @@
 
 
 <div align="center">
-  <video src="./docs/en.mp4" controls width="80%"></video>
+  <video src="https://www.bilibili.com/video/BV13h5m6tEt3" controls width="80%"></video>
   <br/>
 </div>
 ---
