@@ -7,8 +7,11 @@
 JingRail.AI is an intelligent subway cultural tourism guide system specially designed for domestic and foreign tourists visiting Beijing. It is not only a subway wayfinding tool, but also an immersive cultural dissemination platform combining LLM inference, Agent technology, A* shortest path search, and real-time streaming Text-To-Speech (TTS), making every subway station a window to experience Chinese culture.
 
 <div align="center">
-  <video src="https://www.bilibili.com/video/BV13h5m6tEt3" controls width="80%"></video>
+  <a href="https://www.bilibili.com/video/BV13h5m6tEt3" target="_blank">
+    <img src="https://img.shields.io/badge/Bilibili-Watch%20Demo%20Video-00A1D6?style=for-the-badge&logo=bilibili&logoColor=white" alt="Bilibili Video" />
+  </a>
   <br/>
+  <em>Click the button above to watch the project demo on Bilibili</em>
 </div>
 ---
 

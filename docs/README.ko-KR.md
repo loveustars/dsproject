@@ -8,8 +8,11 @@
 
 
 <div align="center">
-  <video src="https://www.bilibili.com/video/BV13h5m6tEt3" controls width="80%"></video>
+  <a href="https://www.bilibili.com/video/BV13h5m6tEt3" target="_blank">
+    <img src="https://img.shields.io/badge/Bilibili-%EB%8D%B0%EB%AA%A8%20%EC%98%81%EC%83%81%20%EB%B3%B4%EA%B8%B0-00A1D6?style=for-the-badge&logo=bilibili&logoColor=white" alt="Bilibili Video" />
+  </a>
   <br/>
+  <em>위 버튼을 클릭하여 Bilibili에서 데모 영상을 시청하세요</em>
 </div>
 ---
 

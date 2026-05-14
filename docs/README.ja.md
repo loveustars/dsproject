@@ -7,8 +7,11 @@
 京軌 (JingRail.AI) は、北京を訪れる国内外の観光客のために特別に作られた、インテリジェントな地下鉄文化観光ガイドシステムです。これは単なる地下鉄の経路探索ツールではなく、LLM推論、エージェント、A*最適経路探索、そしてリアルタイムストリーミング音声合成(TTS)を組み合わせた没入型の文化発信プラットフォームです。
 
 <div align="center">
-  <video src="https://www.bilibili.com/video/BV13h5m6tEt3" controls width="80%"></video>
+  <a href="https://www.bilibili.com/video/BV13h5m6tEt3" target="_blank">
+    <img src="https://img.shields.io/badge/Bilibili-%E3%83%87%E3%83%A2%E5%8B%95%E7%94%BB%E3%82%92%E8%A6%8B%E3%82%8B-00A1D6?style=for-the-badge&logo=bilibili&logoColor=white" alt="Bilibili Video" />
+  </a>
   <br/>
+  <em>Bilibiliでのデモ動画を見るには上のボタンをクリックしてください</em>
 </div>
 
 ---

@@ -7,8 +7,11 @@
 JingRail.AI est un système de guide touristique culturel intelligent du métro spécialement conçu pour les touristes nationaux et étrangers visitant Pékin. Ce n'est pas seulement un outil de recherche d'itinéraire pour le métro, mais aussi une plateforme de diffusion culturelle immersive.
 
 <div align="center">
-  <video src="https://www.bilibili.com/video/BV13h5m6tEt3" controls width="80%"></video>
+  <a href="https://www.bilibili.com/video/BV13h5m6tEt3" target="_blank">
+    <img src="https://img.shields.io/badge/Bilibili-Voir%20la%20vid%C3%A9o%20de%20d%C3%A9mo-00A1D6?style=for-the-badge&logo=bilibili&logoColor=white" alt="Bilibili Video" />
+  </a>
   <br/>
+  <em>Cliquez sur le bouton ci-dessus pour regarder la vidéo de démonstration sur Bilibili</em>
 </div>
 
 ---

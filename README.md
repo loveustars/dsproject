@@ -8,9 +8,11 @@
 京轨 (JingRail.AI) 是一款专为到访北京的国内外游客打造的智能化地铁文旅导游系统。它不仅是一个地铁寻路工具，更是结合了 LLM 大模型推理、智能体 Agent、A* 最短路径搜索以及实时流式语音合成（TTS）的沉浸式文化传播平台，让每一站地铁成为体验中华文化的窗口。
 
 <div align="center">
-  <video src="https://www.bilibili.com/video/BV13h5m6tEt3" controls width="80%"></video>
+  <a href="https://www.bilibili.com/video/BV13h5m6tEt3" target="_blank">
+    <img src="https://img.shields.io/badge/Bilibili-%E7%82%B9%E5%87%BB%E8%A7%82%E7%9C%8B%E9%A1%B9%E7%9B%AE%E6%BC%94%E7%A4%BA%E8%A7%86%E9%A2%91-00A1D6?style=for-the-badge&logo=bilibili&logoColor=white" alt="Bilibili Video" />
+  </a>
   <br/>
-  <em>项目演示视频</em>
+  <em>请点击上方按钮前往 Bilibili 观看项目演示</em>
 </div>
 
 ---
